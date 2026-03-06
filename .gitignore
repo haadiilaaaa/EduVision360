@@ -11,11 +11,11 @@ Thumbs.db
 application-local.properties
 application-prod.properties
 
-# Backend
-eduvision360/target/
-eduvision360/.idea/
-eduvision360/*.iml
 
+# Backend
+eduvision360/eduvision360/target/
+eduvision360/eduvision360/.idea/
+eduvision360/eduvision360/*.iml
 # Frontend
 eduvision360-frontend/node_modules/
 eduvision360-frontend/dist/
