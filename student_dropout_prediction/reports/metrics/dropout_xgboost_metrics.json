@@ -1,0 +1,18 @@
+{
+    "model_name": "XGBoost",
+    "threshold": 0.5400000000000003,
+    "accuracy": 0.8870056497175142,
+    "precision": 0.8333333333333334,
+    "recall": 0.8098591549295775,
+    "f1_score": 0.8214285714285714,
+    "roc_auc": 0.9345632865412107,
+    "average_precision": 0.9092002987479536,
+    "train_rows": 2831,
+    "validation_rows": 708,
+    "test_rows": 885,
+    "negative_class_count_train": 1921,
+    "positive_class_count_train": 910,
+    "scale_pos_weight": 2.110989010989011,
+    "cv_roc_auc_mean": 0.9185974692834765,
+    "cv_roc_auc_std": 0.0076264741666611175
+}

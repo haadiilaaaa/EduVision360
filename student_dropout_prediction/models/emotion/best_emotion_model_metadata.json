@@ -1,0 +1,13 @@
+{
+  "model_name": "EfficientNetB0_FER",
+  "class_names": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "neutral",
+    "sad",
+    "surprise"
+  ],
+  "img_size": 96
+}
