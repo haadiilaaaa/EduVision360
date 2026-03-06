@@ -1,0 +1,35 @@
+# General
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# Secrets
+.env
+*.env
+application-local.properties
+application-prod.properties
+
+# Backend
+eduvision360/target/
+eduvision360/.idea/
+eduvision360/*.iml
+
+# Frontend
+eduvision360-frontend/node_modules/
+eduvision360-frontend/dist/
+eduvision360-frontend/build/
+eduvision360-frontend/.idea/
+
+# Python - dropout
+student_dropout_prediction/.venv/
+student_dropout_prediction/__pycache__/
+student_dropout_prediction/*.pyc
+student_dropout_prediction/.idea/
+
+# Python - face recognition
+face_recognition_ai/.venv/
+face_recognition_ai/__pycache__/
+face_recognition_ai/*.pyc
+face_recognition_ai/.idea/
