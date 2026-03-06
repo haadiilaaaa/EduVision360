@@ -1,0 +1,2 @@
+dataset_format,dataset_root,train_split,test_split,rows_evaluated,accuracy,precision_macro,recall_macro,f1_macro,precision_weighted,recall_weighted,f1_weighted,model_type,img_size,batch_size,head_epochs,finetune_epochs,class_names
+folder,data\raw\fer_images,train,test,7178,0.519086096405684,0.47474397652757816,0.527070071834218,0.483471381364366,0.5274353057224547,0.519086096405684,0.5162061217086608,EfficientNetB0 transfer learning,96,32,12,10,"['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']"
