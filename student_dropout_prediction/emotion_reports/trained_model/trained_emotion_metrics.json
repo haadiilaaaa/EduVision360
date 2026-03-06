@@ -1,0 +1,28 @@
+{
+  "dataset_format": "folder",
+  "dataset_root": "data\\raw\\fer_images",
+  "train_split": "train",
+  "test_split": "test",
+  "rows_evaluated": 7178,
+  "accuracy": 0.519086096405684,
+  "precision_macro": 0.47474397652757816,
+  "recall_macro": 0.527070071834218,
+  "f1_macro": 0.483471381364366,
+  "precision_weighted": 0.5274353057224547,
+  "recall_weighted": 0.519086096405684,
+  "f1_weighted": 0.5162061217086608,
+  "model_type": "EfficientNetB0 transfer learning",
+  "img_size": 96,
+  "batch_size": 32,
+  "head_epochs": 12,
+  "finetune_epochs": 10,
+  "class_names": [
+    "angry",
+    "disgust",
+    "fear",
+    "happy",
+    "neutral",
+    "sad",
+    "surprise"
+  ]
+}

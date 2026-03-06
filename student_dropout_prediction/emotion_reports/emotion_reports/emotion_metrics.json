@@ -1,0 +1,16 @@
+{
+  "dataset_format": "folder",
+  "dataset_root": "data\\raw\\fer_images",
+  "split": "test",
+  "rows_evaluated": 100,
+  "accuracy": 0.59,
+  "precision_macro": 0.4973011463790842,
+  "recall_macro": 0.49987502693385044,
+  "f1_macro": 0.4971125009143442,
+  "precision_weighted": 0.5926304164270243,
+  "recall_weighted": 0.59,
+  "f1_weighted": 0.5896821556579621,
+  "model_type": "DeepFace pretrained emotion inference",
+  "detector_backend": "skip",
+  "notes": "Inference-only benchmark on FER-style folder dataset; no custom training performed."
+}
