@@ -19,7 +19,7 @@ public class EmailServiceImpl implements EmailService {
     private final JavaMailSender mailSender;
     private final EmailAuditRepository emailAuditRepository;
 
-    @Value("${spring.mail.username:}")
+    @Value("${app.mail.from:}")
     private String fromEmail;
 
     @Value("${app.email.enabled:false}")
@@ -39,7 +39,23 @@ public class EmailServiceImpl implements EmailService {
             String relatedEntityId,
             String relatedEntityType
     ) {
-        if (to == null || to.isBlank()) return;
+        if (to == null || to.isBlank()) {
+            EmailAudit audit = EmailAudit.builder()
+                    .toEmail(to)
+                    .subject(subject)
+                    .body(body)
+                    .type(type)
+                    .relatedEntityId(relatedEntityId)
+                    .relatedEntityType(relatedEntityType)
+                    .status("FAILED")
+                    .errorMessage("Recipient email is blank")
+                    .createdAt(Instant.now())
+                    .build();
+
+            emailAuditRepository.save(audit);
+            log.warn("[EMAIL_FAILED] type={} reason=blank_recipient subject={}", type, subject);
+            return;
+        }
 
         EmailAudit audit = EmailAudit.builder()
                 .toEmail(to)
@@ -53,17 +69,18 @@ public class EmailServiceImpl implements EmailService {
                 .build();
 
         try {
-            // If disabled, don't attempt SMTP, but still log for evidence
             if (!emailEnabled) {
                 audit.setStatus("SKIPPED");
                 audit.setErrorMessage("Email disabled (app.email.enabled=false)");
                 emailAuditRepository.save(audit);
+
+                log.warn("[EMAIL_SKIPPED] type={} to={} subject={} reason=app.email.enabled=false",
+                        type, to, subject);
                 return;
             }
 
             SimpleMailMessage message = new SimpleMailMessage();
 
-            // From is optional; if blank, JavaMailSender may still send using default config
             if (fromEmail != null && !fromEmail.isBlank()) {
                 message.setFrom(fromEmail);
             }
@@ -72,14 +89,21 @@ public class EmailServiceImpl implements EmailService {
             message.setSubject(subject != null ? subject : "");
             message.setText(body != null ? body : "");
 
+            log.info("[EMAIL_ATTEMPT] type={} to={} subject={} relatedEntityType={} relatedEntityId={}",
+                    type, to, subject, relatedEntityType, relatedEntityId);
+
             mailSender.send(message);
 
             audit.setStatus("SENT");
             audit.setSentAt(Instant.now());
             emailAuditRepository.save(audit);
 
+            log.info("[EMAIL_SENT] type={} to={} subject={} relatedEntityType={} relatedEntityId={}",
+                    type, to, subject, relatedEntityType, relatedEntityId);
+
         } catch (Exception e) {
-            log.error("Email send failed to {} | subject={}", to, subject, e);
+            log.error("[EMAIL_FAILED] type={} to={} subject={} relatedEntityType={} relatedEntityId={} error={}",
+                    type, to, subject, relatedEntityType, relatedEntityId, e.getMessage(), e);
 
             audit.setStatus("FAILED");
             audit.setErrorMessage(e.getMessage());

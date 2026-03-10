@@ -12,9 +12,12 @@ import lk.icbt.eduvision.eduvision360.material.model.LearningMaterial;
 import lk.icbt.eduvision.eduvision360.material.model.MaterialViewLog;
 import lk.icbt.eduvision.eduvision360.material.repository.LearningMaterialRepository;
 import lk.icbt.eduvision.eduvision360.material.repository.MaterialViewLogRepository;
+import lk.icbt.eduvision.eduvision360.notification.model.NotificationType;
+import lk.icbt.eduvision.eduvision360.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -27,6 +30,7 @@ public class MaterialServiceImpl implements MaterialService {
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     public MaterialResponse create(CreateMaterialRequest req, String teacherId) {
@@ -47,7 +51,25 @@ public class MaterialServiceImpl implements MaterialService {
                 .createdAt(Instant.now())
                 .build();
 
-        return toResponse(learningMaterialRepository.save(material));
+        LearningMaterial saved = learningMaterialRepository.save(material);
+
+        // Create student dashboard notifications
+        List<Enrollment> enrollments = enrollmentRepository.findByCourseIdOrderByEnrolledAtDesc(course.getId());
+
+        for (Enrollment enrollment : enrollments) {
+            notificationService.createNotificationWithCooldown(
+                    enrollment.getStudentId(),
+                    "New learning material uploaded",
+                    "A new learning material was uploaded for " + course.getCourseCode() + " - " + course.getTitle() + ".",
+                    NotificationType.MATERIAL_UPLOADED,
+                    saved.getId(),
+                    "LEARNING_MATERIAL",
+                    "/student/materials",
+                    Duration.ofMinutes(30)
+            );
+        }
+
+        return toResponse(saved);
     }
 
     @Override

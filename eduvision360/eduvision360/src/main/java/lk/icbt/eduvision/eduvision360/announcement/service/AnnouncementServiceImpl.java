@@ -10,9 +10,12 @@ import lk.icbt.eduvision.eduvision360.course.model.Course;
 import lk.icbt.eduvision.eduvision360.course.repository.CourseRepository;
 import lk.icbt.eduvision.eduvision360.enrollment.model.Enrollment;
 import lk.icbt.eduvision.eduvision360.enrollment.repository.EnrollmentRepository;
+import lk.icbt.eduvision.eduvision360.notification.model.NotificationType;
+import lk.icbt.eduvision.eduvision360.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -24,6 +27,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     public AnnouncementResponse create(CreateAnnouncementRequest req, String teacherId) {
@@ -43,7 +47,25 @@ public class AnnouncementServiceImpl implements AnnouncementService {
                 .updatedAt(null)
                 .build();
 
-        return toResponse(announcementRepository.save(announcement));
+        CourseAnnouncement saved = announcementRepository.save(announcement);
+
+        // Create student dashboard notifications
+        List<Enrollment> enrollments = enrollmentRepository.findByCourseIdOrderByEnrolledAtDesc(course.getId());
+
+        for (Enrollment enrollment : enrollments) {
+            notificationService.createNotificationWithCooldown(
+                    enrollment.getStudentId(),
+                    "New announcement posted",
+                    "A new announcement was posted for " + course.getCourseCode() + " - " + course.getTitle() + ".",
+                    NotificationType.ANNOUNCEMENT_POSTED,
+                    saved.getId(),
+                    "ANNOUNCEMENT",
+                    "/student/announcements",
+                    Duration.ofMinutes(30)
+            );
+        }
+
+        return toResponse(saved);
     }
 
     @Override

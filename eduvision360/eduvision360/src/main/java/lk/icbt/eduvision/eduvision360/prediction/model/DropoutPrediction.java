@@ -41,6 +41,9 @@ public class DropoutPrediction {
     private String riskLevel;
     private Double threshold;
 
+    private String modelName;
+    private String scoringMode;
+
     private String predictedByUserId;
     private String predictedByRole;
 
