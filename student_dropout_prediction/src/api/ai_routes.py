@@ -9,7 +9,7 @@ from requests.exceptions import ReadTimeout, RequestException
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 
-from .schemas_ai import AskAiPayload, SummaryPayload, QuizPayload
+from .schemas_ai import AskAiPayload, SummaryPayload, QuizPayload, TeacherQuizPayload
 
 load_dotenv()
 
@@ -74,19 +74,47 @@ def call_ollama_chat(messages: list, temperature: float = 0.2, num_predict: int 
 def extract_json_from_text(text: str) -> Dict[str, Any]:
     cleaned = text.strip()
 
+    # Remove markdown fences if present
     cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"^```\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = cleaned.strip()
 
+    # 1) Try direct JSON parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
+    # 2) Try extracting the outermost JSON object if full braces exist
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    candidate = None
+
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start:end + 1]
         try:
-            return json.loads(match.group(0))
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 3) Try recovering truncated JSON by balancing brackets/braces
+    if start != -1:
+        candidate = cleaned[start:]
+
+        open_curly = candidate.count("{")
+        close_curly = candidate.count("}")
+        open_square = candidate.count("[")
+        close_square = candidate.count("]")
+
+        if close_square < open_square:
+            candidate += "]" * (open_square - close_square)
+
+        if close_curly < open_curly:
+            candidate += "}" * (open_curly - close_curly)
+
+        try:
+            return json.loads(candidate)
         except json.JSONDecodeError:
             pass
 
@@ -145,10 +173,28 @@ def normalize_quiz_output(parsed: Dict[str, Any], expected_count: int) -> Dict[s
     return {"questions": cleaned_questions}
 
 
+def normalize_teacher_quiz_output(parsed: Dict[str, Any], expected_count: int, topic: str) -> Dict[str, Any]:
+    normalized = normalize_quiz_output(parsed, expected_count)
+
+    title = str(parsed.get("title", "")).strip()
+    if not title:
+        clean_topic = (topic or "").strip() or "Generated"
+        title = f"{clean_topic} Quiz"
+
+    return {
+        "title": title,
+        "questions": normalized["questions"]
+    }
+
+
 @router.post("/ask")
 def ask_ai(payload: AskAiPayload):
     try:
         mode = (payload.mode or "").upper().strip()
+
+        question_text = getattr(payload, "question", None)
+        if question_text is None or not str(question_text).strip():
+            raise HTTPException(status_code=400, detail="Question is required")
 
         system_prompt = (
             "You are EduVision360's academic AI assistant for university students. "
@@ -183,7 +229,7 @@ Course: {payload.course_title}
 {context_block}
 
 Student question:
-{payload.question}
+{question_text}
 """.strip()
 
         result = call_ollama_chat(
@@ -297,6 +343,97 @@ Rules:
 
         parsed = extract_json_from_text(result)
         normalized = normalize_quiz_output(parsed, question_count)
+
+        return normalized
+
+    except HTTPException:
+        raise
+    except Exception as ex:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(ex))
+
+
+@router.post("/teacher-quiz")
+def generate_teacher_quiz(payload: TeacherQuizPayload):
+    try:
+        question_count = int(payload.question_count or 5)
+
+        if question_count < 1:
+            question_count = 1
+        if question_count > 10:
+            question_count = 10
+
+        clean_topic = (payload.topic or "").strip()
+        clean_difficulty = (payload.difficulty or "").strip().lower()
+        clean_course_title = (payload.course_title or "").strip()
+        clean_source_text = (payload.source_text or "").strip()
+
+        if not clean_source_text:
+            clean_source_text = (
+                f"This quiz should cover the topic '{clean_topic}' "
+                f"for the course '{clean_course_title}'."
+            )
+
+        system_prompt = (
+            "You are an academic quiz generation assistant for university teachers. "
+            "Return strict JSON only. "
+            "Do not use markdown. "
+            "Do not add any text before or after the JSON. "
+            "The response must be a single valid JSON object. "
+            "Return exactly the requested number of questions. "
+            "Each question must have exactly 4 answer options. "
+            "The correctAnswer must exactly match one of the options."
+        )
+
+        user_prompt = f"""
+Generate exactly {question_count} multiple-choice questions for a teacher-authored quiz draft.
+
+Course title:
+{clean_course_title}
+
+Topic:
+{clean_topic}
+
+Difficulty:
+{clean_difficulty}
+
+Source text / grounding context:
+{clean_source_text}
+
+Return ONLY valid JSON in this exact structure:
+{{
+  "title": "{clean_topic} Quiz",
+  "questions": [
+    {{
+      "question": "string",
+      "options": ["option1", "option2", "option3", "option4"],
+      "correctAnswer": "one of the options exactly",
+      "explanation": "short explanation"
+    }}
+  ]
+}}
+
+Rules:
+- Exactly {question_count} questions
+- Exactly 4 options per question
+- difficulty should influence wording and complexity
+- Questions must stay relevant to the topic
+- correctAnswer must exactly match one option
+- Keep explanations short and clear
+- Output JSON only
+""".strip()
+
+        result = call_ollama_chat(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            num_predict=700
+        )
+
+        parsed = extract_json_from_text(result)
+        normalized = normalize_teacher_quiz_output(parsed, question_count, clean_topic)
 
         return normalized
 

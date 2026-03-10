@@ -20,6 +20,7 @@ def run_single_prediction(
 ) -> SinglePredictionResponse:
     feature_columns = metadata["feature_columns"]
     threshold = float(metadata.get("threshold", 0.50))
+    model_name = metadata.get("model_name", "XGBoost")
 
     X_input = prepare_dataframe(
         records=[request.features],
@@ -38,7 +39,9 @@ def run_single_prediction(
         dropoutProbability=round(probability, 4),
         predictedLabel=predicted_label,
         riskLevel=risk_level,
-        threshold=round(threshold, 2)
+        threshold=round(threshold, 2),
+        modelName=model_name,
+        scoringMode="ML_MODEL"
     )
 
 
@@ -50,6 +53,7 @@ def run_batch_prediction(
 ) -> List[SinglePredictionResponse]:
     feature_columns = metadata["feature_columns"]
     threshold = float(metadata.get("threshold", 0.50))
+    model_name = metadata.get("model_name", "XGBoost")
 
     X_input = prepare_dataframe(
         records=[req.features for req in requests],
@@ -74,7 +78,9 @@ def run_batch_prediction(
                 dropoutProbability=round(probability, 4),
                 predictedLabel=predicted_label,
                 riskLevel=risk_level,
-                threshold=round(threshold, 2)
+                threshold=round(threshold, 2),
+                modelName=model_name,
+                scoringMode="ML_MODEL"
             )
         )
 
