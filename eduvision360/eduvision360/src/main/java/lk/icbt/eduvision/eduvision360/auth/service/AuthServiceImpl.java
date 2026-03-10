@@ -127,13 +127,17 @@ public class AuthServiceImpl implements AuthService {
         User user = userRepo.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        if (user.getStatus() == UserStatus.ACTIVE) return;
+        if (user.getStatus() == UserStatus.ACTIVE) {
+            throw new IllegalStateException("Account already verified");
+        }
 
         OtpToken token = otpRepo.findTopByUserIdAndPurposeAndVerifiedAtIsNullOrderByCreatedAtDesc(
                         user.getId(), OtpPurpose.REGISTER)
                 .orElseThrow(() -> new IllegalArgumentException("No OTP found. Please request a new OTP."));
 
-        if (token.getExpiresAt().isBefore(Instant.now())) {
+        Instant now = Instant.now();
+
+        if (token.getExpiresAt() == null || !token.getExpiresAt().isAfter(now)) {
             throw new IllegalArgumentException("OTP expired. Please request a new OTP.");
         }
 
@@ -148,13 +152,16 @@ public class AuthServiceImpl implements AuthService {
             throw new IllegalArgumentException("Invalid OTP");
         }
 
-        token.setVerifiedAt(Instant.now());
+        token.setVerifiedAt(now);
         otpRepo.save(token);
 
-        if (user.getRole() == UserRole.TEACHER) user.setStatus(UserStatus.PENDING_APPROVAL);
-        else user.setStatus(UserStatus.ACTIVE);
+        if (user.getRole() == UserRole.TEACHER) {
+            user.setStatus(UserStatus.PENDING_APPROVAL);
+        } else {
+            user.setStatus(UserStatus.ACTIVE);
+        }
 
-        user.setVerifiedAt(Instant.now());
+        user.setVerifiedAt(now);
         userRepo.save(user);
     }
 

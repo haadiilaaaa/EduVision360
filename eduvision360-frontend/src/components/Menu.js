@@ -22,7 +22,8 @@ import {
   Moon,
   Bell,
   CalendarDays,
-  CheckCheck
+  CheckCheck,
+  ListChecks
 } from "lucide-react";
 
 import {
@@ -32,7 +33,7 @@ import {
   markAllNotificationsAsRead
 } from "../services/academicService";
 
-// ✅ fallback if actionUrl is missing
+// fallback if actionUrl is missing
 const notificationFallbackUrl = (role, type) => {
   const map = {
     CLASS_SESSION_CREATED: role === "TEACHER" ? "/teacher/sessions" : "/student",
@@ -49,7 +50,12 @@ const notificationFallbackUrl = (role, type) => {
 
     LOW_ENGAGEMENT: role === "TEACHER" ? "/teacher" : "/student",
 
-    SYSTEM_ALERT: role === "ADMIN" ? "/admin" : role === "TEACHER" ? "/teacher" : "/student"
+    SYSTEM_ALERT:
+      role === "ADMIN"
+        ? "/admin"
+        : role === "TEACHER"
+        ? "/teacher/messages"
+        : "/student/messages"
   };
 
   return map[type] || (role === "ADMIN" ? "/admin" : role === "TEACHER" ? "/teacher" : "/student");
@@ -57,8 +63,8 @@ const notificationFallbackUrl = (role, type) => {
 
 function Menu() {
   const role = getUserRole();
-  const name = getDisplayName();     // ✅ from JWT (fullName if present, else email)
-  const initial = getUserInitial();  // ✅ from JWT
+  const name = getDisplayName();
+  const initial = getUserInitial();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -69,6 +75,8 @@ function Menu() {
   const [showNotifications, setShowNotifications] = useState(false);
 
   const notificationRef = useRef(null);
+  const hasInitializedBrowserNotifications = useRef(false);
+  const shownBrowserNotificationIds = useRef(new Set());
 
   const handleLogout = () => {
     logout();
@@ -105,6 +113,42 @@ function Menu() {
     const interval = setInterval(loadNotifications, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const unreadNotifications = notifications.filter((n) => !n.read);
+
+    // Prevent old unread notifications from all popping up on first load
+    if (!hasInitializedBrowserNotifications.current) {
+      unreadNotifications.forEach((n) => shownBrowserNotificationIds.current.add(n.id));
+      hasInitializedBrowserNotifications.current = true;
+      return;
+    }
+
+    unreadNotifications.forEach((n) => {
+      if (!shownBrowserNotificationIds.current.has(n.id)) {
+        shownBrowserNotificationIds.current.add(n.id);
+
+        const popup = new Notification(n.title || "EduVision360 Notification", {
+          body: n.message || "You have a new notification"
+        });
+
+        popup.onclick = () => {
+          window.focus();
+          const url = n.actionUrl || notificationFallbackUrl(role, n.type);
+          if (url) navigate(url);
+        };
+      }
+    });
+  }, [notifications, navigate, role]);
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -500,11 +544,9 @@ function Menu() {
 
           <div className="sidebar-profile">
             <div className="profile-left">
-              {/* ✅ real user initial */}
               <div className="profile-img">{initial}</div>
 
               <div className="profile-details">
-                {/* ✅ real user name */}
                 <p>{name}</p>
                 <span>{role || "User"}</span>
               </div>
@@ -566,45 +608,82 @@ function Menu() {
 
           {role === "STUDENT" && (
             <>
-              <button className={`menu-btn ${isExactActive("/student") ? "active" : ""}`} onClick={() => navigate("/student")}>
+              <button
+                className={`menu-btn ${isExactActive("/student") ? "active" : ""}`}
+                onClick={() => navigate("/student")}
+              >
                 <LayoutDashboard size={18} /><span>Dashboard</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/profile") ? "active" : ""}`} onClick={() => navigate("/student/profile")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/profile") ? "active" : ""}`}
+                onClick={() => navigate("/student/profile")}
+              >
                 <User size={18} /><span>Profile</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/materials") ? "active" : ""}`} onClick={() => navigate("/student/materials")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/materials") ? "active" : ""}`}
+                onClick={() => navigate("/student/materials")}
+              >
                 <BookOpen size={18} /><span>Learning Materials</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/announcements") ? "active" : ""}`} onClick={() => navigate("/student/announcements")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/announcements") ? "active" : ""}`}
+                onClick={() => navigate("/student/announcements")}
+              >
                 <Megaphone size={18} /><span>Announcements</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/ai-tutor") ? "active" : ""}`} onClick={() => navigate("/student/ai-tutor")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/messages") ? "active" : ""}`}
+                onClick={() => navigate("/student/messages")}
+              >
+                <MessageSquare size={18} /><span>Messages</span>
+              </button>
+
+              <button
+                className={`menu-btn ${isExactActive("/student/ai-tutor") ? "active" : ""}`}
+                onClick={() => navigate("/student/ai-tutor")}
+              >
                 <Cpu size={18} /><span>AI Tutor</span>
               </button>
 
               <p className="menu-label">Identity & Attendance</p>
 
-              <button className={`menu-btn ${isExactActive("/student/register-face") ? "active" : ""}`} onClick={() => navigate("/student/register-face")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/register-face") ? "active" : ""}`}
+                onClick={() => navigate("/student/register-face")}
+              >
                 <ScanFace size={18} /><span>Register Face</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/feedback") ? "active" : ""}`} onClick={() => navigate("/student/feedback")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/feedback") ? "active" : ""}`}
+                onClick={() => navigate("/student/feedback")}
+              >
                 <MessageSquare size={18} /><span>Feedback</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/courses") ? "active" : ""}`} onClick={() => navigate("/student/courses")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/courses") ? "active" : ""}`}
+                onClick={() => navigate("/student/courses")}
+              >
                 <BookOpen size={18} /><span>Available Courses</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/my-courses") ? "active" : ""}`} onClick={() => navigate("/student/my-courses")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/my-courses") ? "active" : ""}`}
+                onClick={() => navigate("/student/my-courses")}
+              >
                 <BookOpen size={18} /><span>My Courses</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/student/attendance-history") ? "active" : ""}`} onClick={() => navigate("/student/attendance-history")}>
+              <button
+                className={`menu-btn ${isExactActive("/student/attendance-history") ? "active" : ""}`}
+                onClick={() => navigate("/student/attendance-history")}
+              >
                 <History size={18} /><span>Attendance History</span>
               </button>
 
@@ -618,35 +697,73 @@ function Menu() {
             <>
               <p className="menu-label">Teacher Panel</p>
 
-              <button className={`menu-btn ${isExactActive("/teacher") ? "active" : ""}`} onClick={() => navigate("/teacher")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher") ? "active" : ""}`}
+                onClick={() => navigate("/teacher")}
+              >
                 <LayoutDashboard size={18} /><span>Dashboard</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/profile") ? "active" : ""}`} onClick={() => navigate("/teacher/profile")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/profile") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/profile")}
+              >
                 <User size={18} /><span>Profile</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/courses") ? "active" : ""}`} onClick={() => navigate("/teacher/courses")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/courses") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/courses")}
+              >
                 <BookOpen size={18} /><span>My Courses</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/sessions") ? "active" : ""}`} onClick={() => navigate("/teacher/sessions")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/sessions") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/sessions")}
+              >
                 <CalendarDays size={18} /><span>Manage Sessions</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/materials") ? "active" : ""}`} onClick={() => navigate("/teacher/materials")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/materials") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/materials")}
+              >
                 <BookOpen size={18} /><span>Learning Materials</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/announcements") ? "active" : ""}`} onClick={() => navigate("/teacher/announcements")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/announcements") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/announcements")}
+              >
                 <Megaphone size={18} /><span>Announcements</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/feedback") ? "active" : ""}`} onClick={() => navigate("/teacher/feedback")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/messages") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/messages")}
+              >
+                <MessageSquare size={18} /><span>Messages</span>
+              </button>
+
+              <button
+                className={`menu-btn ${isExactActive("/teacher/quizzes") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/quizzes")}
+              >
+                <ListChecks size={18} /><span>AI Quiz Generator</span>
+              </button>
+
+              <button
+                className={`menu-btn ${isExactActive("/teacher/feedback") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/feedback")}
+              >
                 <MessageSquare size={18} /><span>Feedback Review</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/teacher/attendance") ? "active" : ""}`} onClick={() => navigate("/teacher/attendance")}>
+              <button
+                className={`menu-btn ${isExactActive("/teacher/attendance") ? "active" : ""}`}
+                onClick={() => navigate("/teacher/attendance")}
+              >
                 <CalendarCheck size={18} /><span>View Attendance</span>
               </button>
             </>
@@ -656,23 +773,38 @@ function Menu() {
             <>
               <p className="menu-label">Administration</p>
 
-              <button className={`menu-btn ${isExactActive("/admin") ? "active" : ""}`} onClick={() => navigate("/admin")}>
+              <button
+                className={`menu-btn ${isExactActive("/admin") ? "active" : ""}`}
+                onClick={() => navigate("/admin")}
+              >
                 <LayoutDashboard size={18} /><span>Dashboard</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/admin/profile") ? "active" : ""}`} onClick={() => navigate("/admin/profile")}>
+              <button
+                className={`menu-btn ${isExactActive("/admin/profile") ? "active" : ""}`}
+                onClick={() => navigate("/admin/profile")}
+              >
                 <User size={18} /><span>Profile</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/admin/attendance") ? "active" : ""}`} onClick={() => navigate("/admin/attendance")}>
+              <button
+                className={`menu-btn ${isExactActive("/admin/attendance") ? "active" : ""}`}
+                onClick={() => navigate("/admin/attendance")}
+              >
                 <CalendarCheck size={18} /><span>View Attendance</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/admin/users") ? "active" : ""}`} onClick={() => navigate("/admin/users")}>
+              <button
+                className={`menu-btn ${isExactActive("/admin/users") ? "active" : ""}`}
+                onClick={() => navigate("/admin/users")}
+              >
                 <Users size={18} /><span>Manage Users</span>
               </button>
 
-              <button className={`menu-btn ${isExactActive("/admin/feedback") ? "active" : ""}`} onClick={() => navigate("/admin/feedback")}>
+              <button
+                className={`menu-btn ${isExactActive("/admin/feedback") ? "active" : ""}`}
+                onClick={() => navigate("/admin/feedback")}
+              >
                 <MessageSquare size={18} /><span>Feedback Management</span>
               </button>
 

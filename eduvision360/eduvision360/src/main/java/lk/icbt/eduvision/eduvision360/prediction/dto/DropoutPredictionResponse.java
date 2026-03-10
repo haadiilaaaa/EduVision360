@@ -27,5 +27,8 @@ public class DropoutPredictionResponse {
     private String riskLevel;
     private Double threshold;
 
+    private String modelName;
+    private String scoringMode;
+
     private Instant predictedAt;
 }

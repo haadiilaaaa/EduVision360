@@ -1,8 +1,12 @@
 package lk.icbt.eduvision.eduvision360.attendance.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.icbt.eduvision.eduvision360.attendance.dto.AdminAttendanceResponse;
 import lk.icbt.eduvision.eduvision360.attendance.dto.AttendanceMarkResponse;
+import lk.icbt.eduvision.eduvision360.attendance.dto.FaceRegistrationErrorResponse;
+import lk.icbt.eduvision.eduvision360.attendance.dto.FaceRegistrationResponse;
 import lk.icbt.eduvision.eduvision360.attendance.dto.FaceVerificationResponse;
+import lk.icbt.eduvision.eduvision360.attendance.dto.InvalidFaceFile;
 import lk.icbt.eduvision.eduvision360.attendance.dto.TeacherAttendanceResponse;
 import lk.icbt.eduvision.eduvision360.attendance.model.Attendance;
 import lk.icbt.eduvision.eduvision360.attendance.model.AttendanceStatus;
@@ -17,11 +21,15 @@ import lk.icbt.eduvision.eduvision360.course.repository.CourseRepository;
 import lk.icbt.eduvision.eduvision360.enrollment.repository.EnrollmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -44,6 +52,7 @@ public class AttendanceService {
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final ClassSessionRepository classSessionRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String AI_BASE_URL = "http://localhost:8000";
 
@@ -96,19 +105,16 @@ public class AttendanceService {
             HttpEntity<MultiValueMap<String, Object>> request =
                     new HttpEntity<>(body, headers);
 
-            ResponseEntity<lk.icbt.eduvision.eduvision360.attendance.dto.FaceRegistrationResponse> response =
+            ResponseEntity<FaceRegistrationResponse> response =
                     restTemplate.postForEntity(
                             AI_BASE_URL + "/register-face",
                             request,
-                            lk.icbt.eduvision.eduvision360.attendance.dto.FaceRegistrationResponse.class
+                            FaceRegistrationResponse.class
                     );
 
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new IllegalStateException("Face registration failed");
-            }
+            FaceRegistrationResponse ai = response.getBody();
 
-            var ai = response.getBody();
-            if (ai == null || !ai.isSuccess()) {
+            if (!response.getStatusCode().is2xxSuccessful() || ai == null || !ai.isSuccess()) {
                 throw new IllegalStateException(
                         ai != null && ai.getMessage() != null
                                 ? ai.getMessage()
@@ -116,11 +122,33 @@ public class AttendanceService {
                 );
             }
 
+        } catch (RestClientResponseException e) {
+            String cleanMessage = "Face registration failed. Please upload at least 3 clear face images with one visible face per image.";
+
+            try {
+                String rawBody = e.getResponseBodyAsString();
+
+                if (rawBody != null && !rawBody.isBlank()) {
+                    FaceRegistrationErrorResponse error =
+                            objectMapper.readValue(rawBody, FaceRegistrationErrorResponse.class);
+
+                    cleanMessage = buildFaceRegistrationErrorMessage(error);
+                }
+            } catch (Exception ignored) {
+                // fallback message will be used
+            }
+
+            throw new IllegalStateException(cleanMessage, e);
+
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read face image", e);
+
         } catch (Exception e) {
             e.printStackTrace();
-            throw new IllegalStateException("Face registration failed: " + e.getMessage(), e);
+            throw new IllegalStateException(
+                    e.getMessage() != null ? e.getMessage() : "Face registration failed",
+                    e
+            );
         }
     }
 
@@ -261,7 +289,6 @@ public class AttendanceService {
                         .build();
             }
 
-            // If AI recognized someone, it must match logged-in student email
             if (ai.isRecognized()
                     && ai.getStudentId() != null
                     && !currentUser.getEmail().equalsIgnoreCase(ai.getStudentId())) {
@@ -279,7 +306,6 @@ public class AttendanceService {
 
             String aiStatus = ai.getStatus();
 
-            // Only successful match gets saved
             if ("MATCH".equals(aiStatus) && ai.isRecognized()) {
                 Attendance attendance = Attendance.builder()
                         .studentId(currentUser.getId())
@@ -287,7 +313,7 @@ public class AttendanceService {
                         .sessionId(session.getId())
                         .courseId(course.getId())
                         .courseCode(normalizedCourseCode)
-                        .classId(normalizedCourseCode) // legacy display alias
+                        .classId(normalizedCourseCode)
                         .date(session.getSessionDate())
                         .time(LocalTime.now())
                         .status(AttendanceStatus.PRESENT)
@@ -478,6 +504,49 @@ public class AttendanceService {
     // =====================================================
     // HELPERS
     // =====================================================
+    private String buildFaceRegistrationErrorMessage(FaceRegistrationErrorResponse error) {
+        if (error == null || error.getDetail() == null) {
+            return "Face registration failed. Please upload at least 3 clear face images with one visible face per image.";
+        }
+
+        var detail = error.getDetail();
+
+        StringBuilder message = new StringBuilder();
+
+        if (detail.getMessage() != null && !detail.getMessage().isBlank()) {
+            message.append(detail.getMessage());
+        } else {
+            message.append("Face registration failed.");
+        }
+
+        if (detail.getValidSamples() != null && detail.getRequiredMinimum() != null) {
+            message.append(" Only ")
+                    .append(detail.getValidSamples())
+                    .append(" valid sample(s) were accepted out of required ")
+                    .append(detail.getRequiredMinimum())
+                    .append(".");
+        }
+
+        if (detail.getInvalidFiles() != null && !detail.getInvalidFiles().isEmpty()) {
+            message.append(" Invalid files: ");
+
+            for (int i = 0; i < detail.getInvalidFiles().size(); i++) {
+                InvalidFaceFile file = detail.getInvalidFiles().get(i);
+
+                message.append(file.getFile() != null ? file.getFile() : "unknown-file")
+                        .append(" (")
+                        .append(file.getReason() != null ? file.getReason() : "invalid image")
+                        .append(")");
+
+                if (i < detail.getInvalidFiles().size() - 1) {
+                    message.append(", ");
+                }
+            }
+        }
+
+        return message.toString();
+    }
+
     private String normalizeCourseCode(String courseCode, String fallbackCourseCode) {
         if (courseCode != null && !courseCode.isBlank()) {
             return courseCode.trim().toUpperCase();

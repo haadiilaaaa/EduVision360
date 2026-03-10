@@ -22,4 +22,5 @@ public interface UserRepository extends MongoRepository<User, String> {
     List<User> findByRoleAndStatus(UserRole role, UserStatus status);
     long countByRole(UserRole role);
     Optional<User> findByEmailIgnoreCase(String email);
+    long countByRoleAndStatus(UserRole role, UserStatus status);
 }

@@ -21,6 +21,8 @@ public interface ClassSessionRepository extends MongoRepository<ClassSession, St
             String teacherId,
             ClassSessionStatus status
     );
+    long countByStatus(ClassSessionStatus status);
+    List<ClassSession> findTop5ByOrderByCreatedAtDesc();
 
     List<ClassSession> findByCourseIdAndSessionDateOrderByStartTimeAsc(String courseId, LocalDate sessionDate);
 }

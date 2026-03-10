@@ -33,23 +33,26 @@ import TeacherFeedback from "./pages/TeacherFeedback";
 import AdminFeedback from "./pages/AdminFeedback";
 import StudentAiTutor from "./pages/StudentAiTutor";
 import StudentEngagement from "./pages/StudentEngagement";
+import TeacherMessages from "./pages/TeacherMessages";
+import StudentMessages from "./pages/StudentMessages";
+import TeacherQuizGenerator from "./pages/TeacherQuizGenerator";
 
 function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
         <Routes>
-          {/* 🌍 Public routes */}
+          {/* Public routes */}
           <Route path="/" element={<Register />} />
           <Route path="/apply-teacher" element={<TeacherRegister />} />
           <Route path="/verify-otp" element={<VerifyOtp />} />
           <Route path="/login" element={<Login />} />
 
-          {/* 🔐 Password reset */}
+          {/* Password reset */}
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
 
-          {/* 🎓 Student routes */}
+          {/* Student routes */}
           <Route
             path="/student"
             element={
@@ -69,9 +72,10 @@ function App() {
             <Route path="feedback" element={<StudentFeedback />} />
             <Route path="ai-tutor" element={<StudentAiTutor />} />
             <Route path="engagement/:sessionId" element={<StudentEngagement />} />
+            <Route path="messages" element={<StudentMessages />} />
           </Route>
 
-          {/* 👩‍🏫 Teacher routes */}
+          {/* Teacher routes */}
           <Route
             path="/teacher"
             element={
@@ -126,7 +130,43 @@ function App() {
             }
           />
 
-          {/* 🛠 Admin routes */}
+          <Route
+            path="/teacher/sessions"
+            element={
+              <ProtectedRoute allowedRoles={["TEACHER"]}>
+                <TeacherSessions />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/teacher/feedback"
+            element={
+              <ProtectedRoute allowedRoles={["TEACHER"]}>
+                <TeacherFeedback />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/teacher/messages"
+            element={
+              <ProtectedRoute allowedRoles={["TEACHER"]}>
+                <TeacherMessages />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/teacher/quizzes"
+            element={
+              <ProtectedRoute allowedRoles={["TEACHER"]}>
+                <TeacherQuizGenerator />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Admin routes */}
           <Route
             path="/admin"
             element={
@@ -164,31 +204,13 @@ function App() {
           />
 
           <Route
-  path="/teacher/sessions"
-  element={
-    <ProtectedRoute allowedRoles={["TEACHER"]}>
-      <TeacherSessions />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/teacher/feedback"
-  element={
-    <ProtectedRoute allowedRoles={["TEACHER"]}>
-      <TeacherFeedback />
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/admin/feedback"
-  element={
-    <ProtectedRoute allowedRoles={["ADMIN"]}>
-      <AdminFeedback />
-    </ProtectedRoute>
-  }
-/>
+            path="/admin/feedback"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AdminFeedback />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </BrowserRouter>
     </ThemeProvider>

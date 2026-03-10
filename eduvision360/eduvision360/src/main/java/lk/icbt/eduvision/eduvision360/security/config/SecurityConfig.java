@@ -81,6 +81,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/teacher/feedback/**").hasAuthority("TEACHER")
                         .requestMatchers("/api/admin/feedback/**").hasAuthority("ADMIN")
                         .requestMatchers("/api/student/ai/**").hasAuthority("STUDENT")
+                        .requestMatchers("/api/teacher/messages/**").hasAuthority("TEACHER")
+                        .requestMatchers("/api/teacher/quizzes/**").hasAuthority("TEACHER")
 
                         .anyRequest().authenticated()
                 )
