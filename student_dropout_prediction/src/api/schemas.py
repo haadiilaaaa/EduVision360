@@ -20,6 +20,8 @@ class SinglePredictionResponse(BaseModel):
     predictedLabel: str
     riskLevel: str
     threshold: float
+    modelName: Optional[str] = None
+    scoringMode: Optional[str] = None
 
 
 class BatchPredictionRequest(BaseModel):

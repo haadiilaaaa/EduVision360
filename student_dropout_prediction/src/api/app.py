@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .model_loader import get_artifacts
 from .predictor import run_single_prediction, run_batch_prediction
-from .behavior_predictor import is_behavior_feature_request, run_behavior_prediction
 from .schemas import (
     BatchPredictionRequest,
     BatchPredictionResponse,
@@ -77,9 +76,6 @@ def model_info():
 @app.post("/predict", response_model=SinglePredictionResponse)
 def predict(request: SinglePredictionRequest):
     try:
-        if is_behavior_feature_request(request):
-            return run_behavior_prediction(request)
-
         artifacts = get_artifacts()
 
         return run_single_prediction(
@@ -95,30 +91,14 @@ def predict(request: SinglePredictionRequest):
 @app.post("/predict-batch", response_model=BatchPredictionResponse)
 def predict_batch(request: BatchPredictionRequest):
     try:
-        behavior_requests = []
-        normal_requests = []
+        artifacts = get_artifacts()
 
-        for student in request.students:
-            if is_behavior_feature_request(student):
-                behavior_requests.append(student)
-            else:
-                normal_requests.append(student)
-
-        predictions = []
-
-        for student in behavior_requests:
-            predictions.append(run_behavior_prediction(student))
-
-        if normal_requests:
-            artifacts = get_artifacts()
-            predictions.extend(
-                run_batch_prediction(
-                    requests=normal_requests,
-                    model=artifacts["model"],
-                    metadata=artifacts["metadata"],
-                    training_medians=artifacts["training_medians"]
-                )
-            )
+        predictions = run_batch_prediction(
+            requests=request.students,
+            model=artifacts["model"],
+            metadata=artifacts["metadata"],
+            training_medians=artifacts["training_medians"]
+        )
 
         return BatchPredictionResponse(
             totalStudents=len(predictions),
@@ -146,12 +126,3 @@ async def engagement_analyze(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-    @app.post("/engagement/analyze", response_model=EngagementAnalyzeResponse)
-    async def engagement_analyze(
-            image: UploadFile = File(...),
-            studentId: str | None = Form(None),
-            sessionId: str | None = Form(None),
-            courseId: str | None = Form(None)
-    ):
-        ...

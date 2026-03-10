@@ -16,4 +16,12 @@ class SummaryPayload(BaseModel):
 class QuizPayload(BaseModel):
     topic: str
     source_text: str
-    question_count: int = Field(ge=1, le=10)
+    question_count: int = Field(default=2, ge=1, le=10)
+
+
+class TeacherQuizPayload(BaseModel):
+    course_title: str
+    topic: str
+    difficulty: str
+    question_count: int = Field(default=5, ge=1, le=10)
+    source_text: str | None = None
