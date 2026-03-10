@@ -6,7 +6,6 @@ import lk.icbt.eduvision.eduvision360.course.model.Course;
 import lk.icbt.eduvision.eduvision360.course.repository.CourseRepository;
 import lk.icbt.eduvision.eduvision360.enrollment.model.Enrollment;
 import lk.icbt.eduvision.eduvision360.enrollment.repository.EnrollmentRepository;
-import lk.icbt.eduvision.eduvision360.notification.model.NotificationPriority;
 import lk.icbt.eduvision.eduvision360.notification.model.NotificationType;
 import lk.icbt.eduvision.eduvision360.notification.service.EmailService;
 import lk.icbt.eduvision.eduvision360.notification.service.NotificationService;
@@ -35,8 +34,6 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final StudentFeatureSnapshotService studentFeatureSnapshotService;
-
-    // ✅ add these
     private final NotificationService notificationService;
     private final EmailService emailService;
 
@@ -102,7 +99,6 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
                 .findByStudentIdAndCourseId(student.getId(), course.getId())
                 .orElseGet(DropoutPrediction::new);
 
-        // ✅ keep old values (anti-spam logic)
         String oldRisk = prediction.getRiskLevel();
         Instant oldPredictedAt = prediction.getPredictedAt();
 
@@ -121,6 +117,8 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
         prediction.setPredictedLabel(fastApiResponse.getPredictedLabel());
         prediction.setRiskLevel(fastApiResponse.getRiskLevel());
         prediction.setThreshold(fastApiResponse.getThreshold());
+        prediction.setModelName(fastApiResponse.getModelName());
+        prediction.setScoringMode(fastApiResponse.getScoringMode());
 
         prediction.setPredictedByUserId(authUserId);
         prediction.setPredictedByRole(role);
@@ -131,7 +129,6 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
 
         DropoutPrediction saved = dropoutPredictionRepository.save(prediction);
 
-        // ✅ trigger notifications + emails
         postPredictionAlerts(saved, student, teacher, authUserId, role, oldRisk, oldPredictedAt);
 
         return toResponse(saved);
@@ -148,24 +145,16 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
     ) {
         String risk = saved.getRiskLevel() == null ? "" : saved.getRiskLevel().toUpperCase();
 
-        boolean riskChanged = oldRisk == null || !oldRisk.equalsIgnoreCase(risk);
-
-        // Notifications cooldown (12h)
-        boolean notifyStale = oldPredictedAt == null ||
-                oldPredictedAt.isBefore(Instant.now().minus(Duration.ofHours(12)));
-        boolean shouldNotify = riskChanged || notifyStale;
-
-        // Email cooldown (6h) - separate so HIGH email is not blocked
-        boolean emailStale = oldPredictedAt == null ||
-                oldPredictedAt.isBefore(Instant.now().minus(Duration.ofHours(6)));
-        boolean shouldEmail = riskChanged || emailStale;
+        // TEMP TEST MODE: always send notifications and emails
+        boolean shouldNotify = true;
+        boolean shouldEmail = true;
 
         String relatedId = saved.getId();
         String relatedType = "DROPOUT_PREDICTION";
 
-        // ---------------- STUDENT notifications ----------------
-        if ("HIGH".equals(risk)) {
-            if (shouldNotify) {
+        // ---------------- STUDENT dashboard notification ----------------
+        if (shouldNotify) {
+            if ("HIGH".equals(risk)) {
                 notificationService.createNotificationWithCooldown(
                         student.getId(),
                         "Support recommended",
@@ -173,12 +162,10 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
                         NotificationType.DROPOUT_HIGH_RISK,
                         relatedId,
                         relatedType,
-                        "/student", // ✅ you don't have /student/dashboard route in App.jsx
-                        Duration.ofHours(12)
+                        "/student",
+                        Duration.ofSeconds(1)
                 );
-            }
-        } else if ("MEDIUM".equals(risk)) {
-            if (shouldNotify) {
+            } else if ("MEDIUM".equals(risk)) {
                 notificationService.createNotificationWithCooldown(
                         student.getId(),
                         "Progress check suggested",
@@ -187,26 +174,55 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
                         relatedId,
                         relatedType,
                         "/student",
-                        Duration.ofHours(12)
+                        Duration.ofSeconds(1)
+                );
+            } else if ("LOW".equals(risk)) {
+                notificationService.createNotificationWithCooldown(
+                        student.getId(),
+                        "Progress looks stable",
+                        "Your latest learning analytics indicates a low dropout risk. Keep maintaining your current learning consistency.",
+                        NotificationType.SYSTEM_ALERT,
+                        relatedId,
+                        relatedType,
+                        "/student",
+                        Duration.ofSeconds(1)
                 );
             }
-        } else {
-            // LOW -> do nothing
-            return;
         }
 
-        // ---------------- TEACHER notification + HIGH email ----------------
+        // ---------------- STUDENT email ----------------
+        if (shouldEmail && student != null && student.getEmail() != null && !student.getEmail().isBlank()) {
+            emailService.sendEmail(
+                    student.getEmail(),
+                    "EduVision360 Update: " + risk + " Dropout Risk (" + saved.getCourseCode() + ")",
+                    "Hello " + (student.getFullName() != null ? student.getFullName() : "Student") + ",\n\n"
+                            + "A new dropout risk analysis was generated for your course.\n\n"
+                            + "Course: " + saved.getCourseCode() + " - " + saved.getCourseTitle() + "\n"
+                            + "Risk: " + saved.getRiskLevel() + "\n"
+                            + "Probability: " + saved.getDropoutProbability() + "\n"
+                            + "Predicted at: " + saved.getPredictedAt() + "\n\n"
+                            + ("HIGH".equals(risk)
+                            ? "Please review your dashboard and consider seeking academic support.\n\n"
+                            : "Please continue monitoring your learning progress through the dashboard.\n\n")
+                            + "Regards,\nEduVision360",
+                    "DROPOUT_" + risk + "_RISK",
+                    relatedId,
+                    relatedType
+            );
+        }
+
+        // ---------------- TEACHER notification + email ----------------
         if (saved.getTeacherId() != null && !saved.getTeacherId().isBlank()) {
 
-            // If teacher object was null, fetch it safely
             if (teacher == null) {
                 teacher = userRepository.findById(saved.getTeacherId()).orElse(null);
             }
 
             if (shouldNotify) {
-                NotificationType teacherType = "HIGH".equals(risk)
-                        ? NotificationType.DROPOUT_HIGH_RISK
-                        : NotificationType.DROPOUT_MEDIUM_RISK;
+                NotificationType teacherType =
+                        "HIGH".equals(risk) ? NotificationType.DROPOUT_HIGH_RISK :
+                                "MEDIUM".equals(risk) ? NotificationType.DROPOUT_MEDIUM_RISK :
+                                        NotificationType.SYSTEM_ALERT;
 
                 notificationService.createNotificationWithCooldown(
                         saved.getTeacherId(),
@@ -216,17 +232,12 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
                         teacherType,
                         relatedId,
                         relatedType,
-                        "/teacher", // ✅ you don't have /teacher/predictions route in App.jsx
-                        Duration.ofHours(12)
+                        "/teacher",
+                        Duration.ofSeconds(1)
                 );
             }
 
-            // ✅ Email only for HIGH + separate email cooldown
-            if ("HIGH".equals(risk) && shouldEmail
-                    && teacher != null
-                    && teacher.getEmail() != null
-                    && !teacher.getEmail().isBlank()) {
-
+            if (shouldEmail && teacher != null && teacher.getEmail() != null && !teacher.getEmail().isBlank()) {
                 String teacherMsg = "Student: " + saved.getStudentName() + " (" + saved.getStudentEmail() + ")\n"
                         + "Course: " + saved.getCourseCode() + " - " + saved.getCourseTitle() + "\n"
                         + "Risk: " + saved.getRiskLevel() + "\n"
@@ -235,46 +246,53 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
 
                 emailService.sendEmail(
                         teacher.getEmail(),
-                        "EduVision360 Alert: High Dropout Risk (" + saved.getCourseCode() + ")",
-                        "Hello " + (teacher.getFullName() != null ? teacher.getFullName() : "") + ",\n\n"
+                        "EduVision360 Alert: " + risk + " Dropout Risk (" + saved.getCourseCode() + ")",
+                        "Hello " + (teacher.getFullName() != null ? teacher.getFullName() : "Teacher") + ",\n\n"
                                 + teacherMsg
                                 + "\n\nRegards,\nEduVision360",
-                        "DROPOUT_HIGH_RISK",
+                        "DROPOUT_" + risk + "_RISK",
                         relatedId,
                         relatedType
                 );
             }
         }
 
-        // ---------------- ADMIN WHO RAN IT (optional) ----------------
-        if ("ADMIN".equalsIgnoreCase(predictedByRole) && shouldNotify) {
+        // ---------------- ADMIN WHO RAN IT notification + email ----------------
+        if ("ADMIN".equalsIgnoreCase(predictedByRole)) {
 
-            notificationService.createNotificationWithCooldown(
-                    predictedByUserId,
-                    "Prediction completed (" + saved.getRiskLevel() + ")",
-                    "Dropout prediction completed for " + saved.getStudentName()
-                            + " in " + saved.getCourseCode() + ". Risk: " + saved.getRiskLevel() + ".",
-                    "HIGH".equals(risk) ? NotificationType.DROPOUT_HIGH_RISK : NotificationType.DROPOUT_MEDIUM_RISK,
-                    relatedId,
-                    relatedType,
-                    "/admin",
-                    Duration.ofHours(6)
-            );
+            if (shouldNotify) {
+                NotificationType adminType =
+                        "HIGH".equals(risk) ? NotificationType.DROPOUT_HIGH_RISK :
+                                "MEDIUM".equals(risk) ? NotificationType.DROPOUT_MEDIUM_RISK :
+                                        NotificationType.SYSTEM_ALERT;
 
-            // Optional: email admin only if HIGH
-            if ("HIGH".equals(risk) && shouldEmail) {
+                notificationService.createNotificationWithCooldown(
+                        predictedByUserId,
+                        "Prediction completed (" + saved.getRiskLevel() + ")",
+                        "Dropout prediction completed for " + saved.getStudentName()
+                                + " in " + saved.getCourseCode() + ". Risk: " + saved.getRiskLevel() + ".",
+                        adminType,
+                        relatedId,
+                        relatedType,
+                        "/admin",
+                        Duration.ofSeconds(1)
+                );
+            }
+
+            if (shouldEmail) {
                 User adminUser = userRepository.findById(predictedByUserId).orElse(null);
                 if (adminUser != null && adminUser.getEmail() != null && !adminUser.getEmail().isBlank()) {
                     emailService.sendEmail(
                             adminUser.getEmail(),
-                            "EduVision360 Admin Alert: High Dropout Risk (" + saved.getCourseCode() + ")",
-                            "Hello,\n\nA high-risk dropout prediction was generated.\n\n"
+                            "EduVision360 Admin Alert: " + risk + " Dropout Risk (" + saved.getCourseCode() + ")",
+                            "Hello,\n\nA dropout risk prediction was generated.\n\n"
                                     + "Student: " + saved.getStudentName() + " (" + saved.getStudentEmail() + ")\n"
                                     + "Course: " + saved.getCourseCode() + " - " + saved.getCourseTitle() + "\n"
+                                    + "Risk: " + saved.getRiskLevel() + "\n"
                                     + "Probability: " + saved.getDropoutProbability() + "\n"
                                     + "Predicted at: " + saved.getPredictedAt()
                                     + "\n\nRegards,\nEduVision360",
-                            "DROPOUT_HIGH_RISK",
+                            "DROPOUT_" + risk + "_RISK",
                             relatedId,
                             relatedType
                     );
@@ -373,6 +391,8 @@ public class DropoutPredictionServiceImpl implements DropoutPredictionService {
                 p.getPredictedLabel(),
                 p.getRiskLevel(),
                 p.getThreshold(),
+                p.getModelName(),
+                p.getScoringMode(),
                 p.getPredictedAt()
         );
     }

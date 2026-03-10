@@ -9,5 +9,4 @@ class Eduvision360ApplicationTests {
 	@Test
 	void contextLoads() {
 	}
-
 }

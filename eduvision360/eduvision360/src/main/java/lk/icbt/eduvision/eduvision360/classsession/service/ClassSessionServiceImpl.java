@@ -20,6 +20,7 @@ import lk.icbt.eduvision.eduvision360.notification.model.NotificationType;
 import lk.icbt.eduvision.eduvision360.notification.service.EmailService;
 import lk.icbt.eduvision.eduvision360.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ClassSessionServiceImpl implements ClassSessionService {
 
     private final ClassSessionRepository classSessionRepository;
@@ -83,7 +85,6 @@ public class ClassSessionServiceImpl implements ClassSessionService {
 
         ClassSession saved = classSessionRepository.save(session);
 
-        // Notify enrolled students in DB + email
         List<Enrollment> enrollments = enrollmentRepository.findByCourseId(course.getId());
         for (Enrollment enrollment : enrollments) {
             notificationService.createNotification(
@@ -98,9 +99,14 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                     "/student/sessions"
             );
 
-            if (enrollment.getStudentEmail() != null && !enrollment.getStudentEmail().isBlank()) {
+            String studentEmail = resolveStudentEmail(enrollment);
+
+            log.info("[EMAIL_TRIGGER] flow=CLASS_SESSION_CREATED studentId={} email={} sessionId={}",
+                    enrollment.getStudentId(), studentEmail, saved.getId());
+
+            if (studentEmail != null && !studentEmail.isBlank()) {
                 emailService.sendEmail(
-                        enrollment.getStudentEmail(),
+                        studentEmail,
                         "Class Session Scheduled - " + course.getCourseCode(),
                         "Hello,\n\n"
                                 + "A new class session has been scheduled for:\n"
@@ -113,6 +119,9 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                         saved.getId(),
                         "CLASS_SESSION"
                 );
+            } else {
+                log.warn("[EMAIL_NOT_SENT] flow=CLASS_SESSION_CREATED studentId={} reason=no_email sessionId={}",
+                        enrollment.getStudentId(), saved.getId());
             }
         }
 
@@ -174,9 +183,6 @@ public class ClassSessionServiceImpl implements ClassSessionService {
         return toResponse(saved);
     }
 
-    /**
-     * ✅ SYSTEM update (Scheduler) - no Authentication
-     */
     public void updateSessionStatusSystem(String sessionId, ClassSessionStatus newStatus) {
         ClassSession session = classSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Class session not found"));
@@ -184,10 +190,6 @@ public class ClassSessionServiceImpl implements ClassSessionService {
         updateStatusInternal(session, newStatus);
     }
 
-    /**
-     * ✅ Closing soon warnings (Scheduler)
-     * Requires NotificationType.CLASS_SESSION_CLOSING_SOON
-     */
     public void sendClosingSoonWarningsSystem(String sessionId, long minutesLeft) {
         ClassSession session = classSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Class session not found"));
@@ -223,15 +225,10 @@ public class ClassSessionServiceImpl implements ClassSessionService {
         }
     }
 
-    // =========================
-    // Internal helpers
-    // =========================
-
     private ClassSession updateStatusInternal(ClassSession session, ClassSessionStatus newStatus) {
         ClassSessionStatus oldStatus = session.getStatus();
         if (oldStatus == newStatus) return session;
 
-        // Optional safety: don't allow automation to change CANCELLED sessions
         if (oldStatus == ClassSessionStatus.CANCELLED) return session;
 
         session.setStatus(newStatus);
@@ -264,9 +261,14 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                     "/student/attendance/" + saved.getId()
             );
 
-            if (enrollment.getStudentEmail() != null && !enrollment.getStudentEmail().isBlank()) {
+            String studentEmail = resolveStudentEmail(enrollment);
+
+            log.info("[EMAIL_TRIGGER] flow=CLASS_SESSION_OPENED studentId={} email={} sessionId={}",
+                    enrollment.getStudentId(), studentEmail, saved.getId());
+
+            if (studentEmail != null && !studentEmail.isBlank()) {
                 emailService.sendEmail(
-                        enrollment.getStudentEmail(),
+                        studentEmail,
                         "Attendance Open - " + saved.getCourseCode(),
                         "Hello,\n\n"
                                 + "Attendance is now OPEN for:\n"
@@ -279,6 +281,9 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                         saved.getId(),
                         "CLASS_SESSION"
                 );
+            } else {
+                log.warn("[EMAIL_NOT_SENT] flow=CLASS_SESSION_OPENED studentId={} reason=no_email sessionId={}",
+                        enrollment.getStudentId(), saved.getId());
             }
         }
     }
@@ -300,20 +305,21 @@ public class ClassSessionServiceImpl implements ClassSessionService {
         int presentCount = presentStudentIds.size();
         int absentCount = absent.size();
 
-        // ✅ Create ABSENT attendance records so attendance-history shows correctly
         for (Enrollment e : absent) {
             if (e.getStudentId() == null) continue;
 
             boolean alreadyExists = attendanceRepository.existsByStudentIdAndSessionId(e.getStudentId(), saved.getId());
             if (alreadyExists) continue;
 
+            String studentEmail = resolveStudentEmail(e);
+
             Attendance absentRecord = Attendance.builder()
                     .studentId(e.getStudentId())
-                    .studentEmail(e.getStudentEmail())
+                    .studentEmail(studentEmail)
                     .sessionId(saved.getId())
                     .courseId(saved.getCourseId())
                     .courseCode(saved.getCourseCode())
-                    .classId(saved.getCourseCode()) // legacy alias = courseCode
+                    .classId(saved.getCourseCode())
                     .date(saved.getSessionDate())
                     .time(saved.getEndTime() != null ? saved.getEndTime() : saved.getStartTime())
                     .status(AttendanceStatus.ABSENT)
@@ -323,7 +329,6 @@ public class ClassSessionServiceImpl implements ClassSessionService {
             attendanceRepository.save(absentRecord);
         }
 
-        // Teacher summary (in-app + optional email)
         if (saved.getTeacherId() != null) {
             String summaryMsg = "Session completed for " + saved.getCourseCode() + " on " + saved.getSessionDate()
                     + ". Present: " + presentCount + ", Absent: " + absentCount + ".";
@@ -341,6 +346,9 @@ public class ClassSessionServiceImpl implements ClassSessionService {
 
             User teacher = userRepository.findById(saved.getTeacherId()).orElse(null);
             if (teacher != null && teacher.getEmail() != null && !teacher.getEmail().isBlank()) {
+                log.info("[EMAIL_TRIGGER] flow=CLASS_SESSION_COMPLETED_TEACHER teacherId={} email={} sessionId={}",
+                        saved.getTeacherId(), teacher.getEmail(), saved.getId());
+
                 emailService.sendEmail(
                         teacher.getEmail(),
                         "EduVision360: Session Completed Summary - " + saved.getCourseCode(),
@@ -350,12 +358,13 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                         saved.getId(),
                         "CLASS_SESSION"
                 );
+            } else {
+                log.warn("[EMAIL_NOT_SENT] flow=CLASS_SESSION_COMPLETED_TEACHER teacherId={} reason=no_email sessionId={}",
+                        saved.getTeacherId(), saved.getId());
             }
         }
 
-        // Absent students → notification + email
         for (Enrollment enrollment : absent) {
-
             notificationService.createNotificationWithCooldown(
                     enrollment.getStudentId(),
                     "Attendance missing",
@@ -369,9 +378,14 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                     Duration.ofDays(7)
             );
 
-            if (enrollment.getStudentEmail() != null && !enrollment.getStudentEmail().isBlank()) {
+            String studentEmail = resolveStudentEmail(enrollment);
+
+            log.info("[EMAIL_TRIGGER] flow=ATTENDANCE_MISSED studentId={} email={} sessionId={}",
+                    enrollment.getStudentId(), studentEmail, saved.getId());
+
+            if (studentEmail != null && !studentEmail.isBlank()) {
                 emailService.sendEmail(
-                        enrollment.getStudentEmail(),
+                        studentEmail,
                         "EduVision360: Attendance Missing - " + saved.getCourseCode(),
                         "Hello,\n\n"
                                 + "No attendance record was found for your session:\n"
@@ -384,8 +398,27 @@ public class ClassSessionServiceImpl implements ClassSessionService {
                         saved.getId(),
                         "CLASS_SESSION"
                 );
+            } else {
+                log.warn("[EMAIL_NOT_SENT] flow=ATTENDANCE_MISSED studentId={} reason=no_email sessionId={}",
+                        enrollment.getStudentId(), saved.getId());
             }
         }
+    }
+
+    private String resolveStudentEmail(Enrollment enrollment) {
+        if (enrollment == null) return null;
+
+        if (enrollment.getStudentEmail() != null && !enrollment.getStudentEmail().isBlank()) {
+            return enrollment.getStudentEmail();
+        }
+
+        if (enrollment.getStudentId() != null && !enrollment.getStudentId().isBlank()) {
+            return userRepository.findById(enrollment.getStudentId())
+                    .map(User::getEmail)
+                    .orElse(null);
+        }
+
+        return null;
     }
 
     private ClassSessionResponse toResponse(ClassSession session) {

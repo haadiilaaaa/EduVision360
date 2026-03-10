@@ -16,4 +16,5 @@ public interface CourseRepository extends MongoRepository<Course, String> {
 
 
     java.util.Optional<Course> findByIdAndTeacherId(String id, String teacherId);
+    long countByDepartmentId(String departmentId);
 }

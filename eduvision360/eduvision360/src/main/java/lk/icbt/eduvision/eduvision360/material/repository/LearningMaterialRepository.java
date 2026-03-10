@@ -17,4 +17,6 @@ public interface LearningMaterialRepository extends MongoRepository<LearningMate
     List<LearningMaterial> findByCourseIdInOrderByCreatedAtDesc(List<String> courseIds);
 
     Optional<LearningMaterial> findByIdAndTeacherId(String id, String teacherId);
+
+    List<LearningMaterial> findTop5ByOrderByCreatedAtDesc();
 }

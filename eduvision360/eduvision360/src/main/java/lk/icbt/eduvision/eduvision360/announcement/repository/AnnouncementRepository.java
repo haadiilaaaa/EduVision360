@@ -17,4 +17,5 @@ public interface AnnouncementRepository extends MongoRepository<CourseAnnounceme
     List<CourseAnnouncement> findByCourseIdInOrderByCreatedAtDesc(List<String> courseIds);
 
     Optional<CourseAnnouncement> findByIdAndTeacherId(String id, String teacherId);
+    List<CourseAnnouncement> findTop5ByOrderByCreatedAtDesc();
 }

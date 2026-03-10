@@ -79,4 +79,8 @@ public class AiInteraction {
     @Indexed
     @Builder.Default
     private Instant createdAt = Instant.now();
+    private String teacherId;
+
+    private String teacherName;
+    private String teacherEmail;
 }

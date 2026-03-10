@@ -10,7 +10,9 @@ import {
   Users,
   ShieldAlert,
   CheckCircle2,
-  CalendarDays
+  CalendarDays,
+  TrendingUp,
+  Activity
 } from "lucide-react";
 import {
   getMyTeacherCourses,
@@ -22,6 +24,10 @@ import {
   getTeacherPredictionsByCourse,
   runDropoutPrediction
 } from "../services/predictionService";
+import {
+  runProgressAnalytics,
+  getTeacherCourseProgress
+} from "../services/progressService";
 
 function TeacherDashboard() {
   const navigate = useNavigate();
@@ -43,13 +49,20 @@ function TeacherDashboard() {
   const [coursePredictions, setCoursePredictions] = useState([]);
 
   const [loading, setLoading] = useState(false);
+  const [showPredictionAdvanced, setShowPredictionAdvanced] = useState(false);
   const [predictionResult, setPredictionResult] = useState(null);
   const [error, setError] = useState("");
 
   const [engSummary, setEngSummary] = useState(null);
   const [engLoading, setEngLoading] = useState(false);
+
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [progressMessage, setProgressMessage] = useState("");
+  const [progressResult, setProgressResult] = useState(null);
+  const [courseProgressAnalytics, setCourseProgressAnalytics] = useState([]);
+
   const displayName = getDisplayName();
-const initial = getUserInitial();
+  const initial = getUserInitial();
 
   const loadCourses = async () => {
     try {
@@ -121,6 +134,21 @@ const initial = getUserInitial();
     }
   };
 
+  const loadCourseProgressAnalytics = async (courseId) => {
+    if (!courseId) {
+      setCourseProgressAnalytics([]);
+      return;
+    }
+
+    try {
+      const res = await getTeacherCourseProgress(courseId);
+      setCourseProgressAnalytics(res.data || []);
+    } catch (err) {
+      console.log("Failed to load teacher course progress analytics", err);
+      setCourseProgressAnalytics([]);
+    }
+  };
+
   const loadEngagementSummary = async (courseId) => {
     if (!courseId) {
       setEngSummary(null);
@@ -150,6 +178,7 @@ const initial = getUserInitial();
       loadStudents(selectedCourseId);
       loadCoursePredictions(selectedCourseId);
       loadEngagementSummary(selectedCourseId);
+      loadCourseProgressAnalytics(selectedCourseId);
     }
     // eslint-disable-next-line
   }, [selectedCourseId]);
@@ -199,9 +228,71 @@ const initial = getUserInitial();
     }
   };
 
+  const handleRunProgressAnalytics = async () => {
+    setProgressLoading(true);
+    setProgressMessage("");
+    setProgressResult(null);
+
+    try {
+      if (!selectedCourseId) {
+        throw new Error("Please select a course.");
+      }
+
+      if (!selectedStudentId) {
+        throw new Error("Please select a student.");
+      }
+
+      const res = await runProgressAnalytics({
+        studentId: selectedStudentId,
+        courseId: selectedCourseId,
+        windowDays
+      });
+
+      setProgressResult(res.data);
+      setProgressMessage("Progress analytics generated successfully.");
+      await loadCourseProgressAnalytics(selectedCourseId);
+    } catch (err) {
+      setProgressMessage(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to generate progress analytics."
+      );
+    } finally {
+      setProgressLoading(false);
+    }
+  };
+
   const getRiskClass = (riskLevel) => {
     if (riskLevel === "HIGH") return "risk-high";
     if (riskLevel === "MEDIUM") return "risk-medium";
+    return "risk-low";
+  };
+
+  const formatTimestamp = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
+
+const getProbabilityPercent = (value) => {
+  if (value == null || Number.isNaN(Number(value))) return 0;
+  return Math.max(0, Math.min(100, Math.round(Number(value) * 100)));
+};
+
+const getRiskMessage = (riskLevel) => {
+  if (riskLevel === "HIGH") {
+    return "Immediate teacher follow-up is recommended based on the latest behavioral learning evidence.";
+  }
+  if (riskLevel === "MEDIUM") {
+    return "Student activity should be monitored and learning consistency should be reinforced.";
+  }
+  return "Current behavioral evidence suggests a relatively stable learning pattern.";
+};
+
+  const getProgressStatusClass = (status) => {
+    if (status === "AT_RISK") return "risk-high";
+    if (status === "NEEDS_ATTENTION") return "risk-medium";
     return "risk-low";
   };
 
@@ -222,7 +313,6 @@ const initial = getUserInitial();
     <div className="teacher-layout">
       <style>{`
   :root {
-    /* safe fallbacks if a variable is missing */
     --page-bg: var(--page-bg, radial-gradient(circle at top right, rgba(56,189,248,0.10), transparent 45%),
                           radial-gradient(circle at bottom left, rgba(99,102,241,0.10), transparent 45%),
                           #0b1220);
@@ -253,7 +343,6 @@ const initial = getUserInitial();
     margin: 0 auto;
   }
 
-  /* ---------- HERO ---------- */
   .hero {
     display: flex;
     align-items: flex-start;
@@ -278,12 +367,12 @@ const initial = getUserInitial();
     font-size: 14.5px;
   }
 
-  /* Optional avatar if you decide to render it */
   .hero-right {
     display: flex;
     align-items: center;
     gap: 12px;
   }
+
   .avatar {
     width: 44px;
     height: 44px;
@@ -297,7 +386,6 @@ const initial = getUserInitial();
     border: 1px solid rgba(255,255,255,0.18);
   }
 
-  /* ---------- GRID / CARDS ---------- */
   .summary-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
@@ -390,7 +478,6 @@ const initial = getUserInitial();
     font-size: 14.5px;
   }
 
-  /* ---------- BUTTONS ---------- */
   .action-btn {
     margin-top: 14px;
     background: var(--button-secondary-bg);
@@ -437,7 +524,6 @@ const initial = getUserInitial();
     transform: none;
   }
 
-  /* ---------- FORMS ---------- */
   .form-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
@@ -489,7 +575,6 @@ const initial = getUserInitial();
     resize: vertical;
   }
 
-  /* ---------- MESSAGES ---------- */
   .message-box {
     margin-top: 16px;
     padding: 14px;
@@ -520,7 +605,6 @@ const initial = getUserInitial();
     font-size: 14px;
   }
 
-  /* ---------- LISTS ---------- */
   .recent-list {
     margin-top: 14px;
     display: grid;
@@ -556,7 +640,6 @@ const initial = getUserInitial();
     font-size: 13.5px;
   }
 
-  /* ---------- BADGES ---------- */
   .risk-badge {
     display: inline-flex;
     align-items: center;
@@ -589,7 +672,6 @@ const initial = getUserInitial();
     border-color: rgba(34, 197, 94, 0.28);
   }
 
-  /* ---------- CHART ---------- */
   .chart-box {
     margin-top: 18px;
     padding: 16px;
@@ -628,7 +710,6 @@ const initial = getUserInitial();
   .fill-medium { background: rgba(245, 158, 11, 0.85); }
   .fill-low { background: rgba(34, 197, 94, 0.85); }
 
-  /* ---------- RESPONSIVE ---------- */
   @media (max-width: 1100px) {
     .summary-card { grid-column: span 6; }
     .card { grid-column: span 6; }
@@ -643,16 +724,187 @@ const initial = getUserInitial();
     .form-grid .form-group { grid-column: span 12; }
     .hero { flex-direction: column; align-items: flex-start; }
   }
+
+  .prediction-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.advanced-toggle {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: 0.2s ease;
+}
+
+.advanced-toggle:hover {
+  border-color: rgba(96,165,250,0.28);
+  transform: translateY(-1px);
+}
+
+.advanced-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.03);
+}
+
+.prediction-result-card {
+  margin-top: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 20px;
+  padding: 18px;
+  background: rgba(255,255,255,0.04);
+  box-shadow: var(--card-shadow);
+}
+
+.prediction-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.prediction-result-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.prediction-subtitle {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+}
+
+.probability-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-color);
+}
+
+.probability-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.probability-value {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.probability-bar {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.probability-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.probability-fill.risk-high {
+  background: rgba(239, 68, 68, 0.9);
+}
+
+.probability-fill.risk-medium {
+  background: rgba(245, 158, 11, 0.9);
+}
+
+.probability-fill.risk-low {
+  background: rgba(34, 197, 94, 0.9);
+}
+
+.metric-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+}
+
+.metric-card {
+  grid-column: span 4;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-color);
+}
+
+.metric-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.metric-value {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.prediction-interpretation {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(96,165,250,0.08);
+  border: 1px solid rgba(96,165,250,0.20);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  .metric-card {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 720px) {
+  .metric-card {
+    grid-column: span 12;
+  }
+}
 `}</style>
       <Menu />
 
       <main className="main-content">
         <div className="hero">
-          <h2>Teacher Dashboard</h2>
-          <p>
-  Welcome, <strong>{displayName}</strong>. Manage your assigned courses, class sessions,
-  and student learning support from here.
-</p>
+          <div>
+            <h2>Teacher Dashboard</h2>
+            <p>
+              Welcome, <strong>{displayName}</strong>. Manage your assigned courses, class sessions,
+              and student learning support from here.
+            </p>
+          </div>
+
+          <div className="hero-right">
+            <div className="avatar">{initial}</div>
+          </div>
         </div>
 
         <div className="summary-grid">
@@ -722,15 +974,193 @@ const initial = getUserInitial();
           </div>
 
           <div className="card full-width-card">
-            <Brain size={24} color="var(--accent)" />
-            <h3>Student Dropout Prediction</h3>
+  <Brain size={24} color="var(--accent)" />
+  <h3>Student Dropout Prediction</h3>
+  <p>
+    Generate a live XGBoost-based dropout risk analysis using recent attendance,
+    login recency, material interaction, and AI-supported learning activity.
+  </p>
+
+  <div className="form-grid">
+    <div className="form-group">
+      <label>Course</label>
+      <select
+        value={selectedCourseId}
+        onChange={(e) => setSelectedCourseId(e.target.value)}
+      >
+        <option value="">Select course</option>
+        {courses.map((course) => (
+          <option key={course.id} value={course.id}>
+            {course.courseCode} - {course.title}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div className="form-group">
+      <label>Student</label>
+      <select
+        value={selectedStudentId}
+        onChange={(e) => setSelectedStudentId(e.target.value)}
+      >
+        <option value="">Select student</option>
+        {students.map((student) => (
+          <option key={student.id} value={student.id}>
+            {student.fullName} {student.studentCode ? `(${student.studentCode})` : ""}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div className="form-group">
+      <label>Window</label>
+      <select
+        value={windowDays}
+        onChange={(e) => setWindowDays(Number(e.target.value))}
+      >
+        <option value={7}>Last 7 days</option>
+        <option value={14}>Last 14 days</option>
+        <option value={30}>Last 30 days</option>
+      </select>
+    </div>
+  </div>
+
+  <div className="prediction-toolbar">
+    <button className="predict-btn" onClick={handlePredict} disabled={loading}>
+      {loading ? "Predicting..." : "Run & Save Dropout Prediction"}
+    </button>
+
+    <button
+      type="button"
+      className="advanced-toggle"
+      onClick={() => setShowPredictionAdvanced((prev) => !prev)}
+    >
+      {showPredictionAdvanced ? "Hide Advanced Options" : "Show Advanced Options"}
+    </button>
+  </div>
+
+  {showPredictionAdvanced && (
+    <div className="advanced-panel">
+      <div className="form-group">
+        <label>Optional Feature Overrides JSON</label>
+        <textarea
+          value={featuresText}
+          onChange={(e) => setFeaturesText(e.target.value)}
+          placeholder={`Example:
+{
+  "days_since_last_login": 10,
+  "material_views_count_window": 2
+}`}
+        />
+      </div>
+    </div>
+  )}
+
+  {error && <div className="message-box error-box">{error}</div>}
+
+  {predictionResult && (
+    <div className="prediction-result-card">
+      <div className="prediction-result-header">
+        <div>
+          <h4 className="prediction-result-title">Latest Prediction Result</h4>
+          <div className="prediction-subtitle">
+            {predictionResult.studentName} • {predictionResult.courseCode} - {predictionResult.courseTitle}
+          </div>
+        </div>
+
+        <span className={`risk-badge ${getRiskClass(predictionResult.riskLevel)}`}>
+          {predictionResult.riskLevel} RISK
+        </span>
+      </div>
+
+      <div className="probability-panel">
+        <div className="probability-top">
+          <div className="muted">Dropout Probability</div>
+          <div className="probability-value">
+            {getProbabilityPercent(predictionResult.dropoutProbability)}%
+          </div>
+        </div>
+
+        <div className="probability-bar">
+          <div
+            className={`probability-fill ${getRiskClass(predictionResult.riskLevel)}`}
+            style={{ width: `${getProbabilityPercent(predictionResult.dropoutProbability)}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="metric-grid">
+        <div className="metric-card">
+          <div className="metric-label">Predicted Label</div>
+          <div className="metric-value">{predictionResult.predictedLabel || "-"}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Threshold</div>
+          <div className="metric-value">{predictionResult.threshold ?? "-"}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Generated At</div>
+          <div className="metric-value">{formatTimestamp(predictionResult.predictedAt)}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Model</div>
+          <div className="metric-value">{predictionResult.modelName || "XGBoost"}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Scoring Mode</div>
+          <div className="metric-value">{predictionResult.scoringMode || "-"}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">Student Email</div>
+          <div className="metric-value">{predictionResult.studentEmail || "-"}</div>
+        </div>
+      </div>
+
+      <div className="prediction-interpretation">
+        <strong>Interpretation:</strong> {getRiskMessage(predictionResult.riskLevel)}
+      </div>
+    </div>
+  )}
+
+  <div className="chart-box">
+    <h4 style={{ marginTop: 0, marginBottom: "14px" }}>Risk Distribution</h4>
+    {riskChartData.map((item) => (
+      <div className="chart-row" key={item.label}>
+        <div className="chart-label">
+          <span>{item.label}</span>
+          <span>{item.value}</span>
+        </div>
+        <div className="chart-bar-bg">
+          <div
+            className={`chart-bar-fill ${item.fillClass}`}
+            style={{
+              width: `${(item.value / maxRiskValue) * 100}%`
+            }}
+          />
+        </div>
+      </div>
+    ))}
+  </div>
+</div>
+
+          <div className="card full-width-card">
+            <TrendingUp size={24} color="var(--accent)" />
+            <h3>Student Progress Analytics</h3>
             <p>
-              Select a real course and enrolled student from the system.
+              Generate an interpretable progress profile using attendance,
+              learning-material interaction, AI learning support usage,
+              engagement evidence, and dropout-risk context.
             </p>
 
             <div className="info-box">
-              The override JSON is optional. Leave it empty if those extra
-              values are not available in your current system data.
+              This is an indicator-based analytics module, not a second ML model.
+              It is designed to support intervention decisions in a realistic and
+              explainable way.
             </div>
 
             <div className="form-grid">
@@ -778,60 +1208,100 @@ const initial = getUserInitial();
               </div>
             </div>
 
-            <div className="form-group" style={{ marginTop: "16px" }}>
-              <label>Optional Feature Overrides JSON</label>
-              <textarea
-                value={featuresText}
-                onChange={(e) => setFeaturesText(e.target.value)}
-                placeholder={`Example:
-{
-  "days_since_last_login": 10,
-  "material_views_count_window": 2
-}`}
-              />
-            </div>
-
-            <button className="predict-btn" onClick={handlePredict} disabled={loading}>
-              {loading ? "Predicting..." : "Run & Save Dropout Prediction"}
+            <button
+              className="predict-btn"
+              onClick={handleRunProgressAnalytics}
+              disabled={progressLoading}
+            >
+              {progressLoading ? "Generating..." : "Run Progress Analytics"}
             </button>
 
-            {error && <div className="message-box error-box">{error}</div>}
-
-            {predictionResult && (
-              <div className="message-box result-box">
-                <h4 style={{ marginTop: 0, marginBottom: "12px" }}>Latest Prediction</h4>
-                <p><strong>Student:</strong> {predictionResult.studentName}</p>
-                <p><strong>Email:</strong> {predictionResult.studentEmail}</p>
-                <p><strong>Course:</strong> {predictionResult.courseCode} - {predictionResult.courseTitle}</p>
-                <p><strong>Dropout Probability:</strong> {predictionResult.dropoutProbability}</p>
-                <p><strong>Predicted Label:</strong> {predictionResult.predictedLabel}</p>
-                <p><strong>Threshold:</strong> {predictionResult.threshold}</p>
-
-                <span className={`risk-badge ${getRiskClass(predictionResult.riskLevel)}`}>
-                  Risk Level: {predictionResult.riskLevel}
-                </span>
+            {progressMessage && (
+              <div
+                className={`message-box ${
+                  progressResult ? "result-box" : "error-box"
+                }`}
+              >
+                {progressMessage}
               </div>
             )}
 
-            <div className="chart-box">
-              <h4 style={{ marginTop: 0, marginBottom: "14px" }}>Risk Distribution</h4>
-              {riskChartData.map((item) => (
-                <div className="chart-row" key={item.label}>
-                  <div className="chart-label">
-                    <span>{item.label}</span>
-                    <span>{item.value}</span>
+            {progressResult && (
+              <div className="message-box result-box">
+                <h4 style={{ marginTop: 0, marginBottom: "12px" }}>
+                  Latest Progress Result
+                </h4>
+
+                <p>
+                  <strong>Student:</strong> {progressResult.studentName}
+                </p>
+                <p>
+                  <strong>Course:</strong> {progressResult.courseCode} -{" "}
+                  {progressResult.courseTitle}
+                </p>
+                <p>
+                  <strong>Progress Score:</strong> {progressResult.progressScore}
+                </p>
+                <p>
+                  <strong>Trend:</strong> {progressResult.trend}
+                </p>
+                <p>
+                  <strong>Suggestion:</strong>{" "}
+                  {progressResult.interventionSuggestion}
+                </p>
+
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
+                  <span
+                    className={`risk-badge ${getProgressStatusClass(
+                      progressResult.status
+                    )}`}
+                  >
+                    Status: {progressResult.status}
+                  </span>
+
+                  {progressResult.dropoutRiskLevel && (
+                    <span className={`risk-badge ${getRiskClass(progressResult.dropoutRiskLevel)}`}>
+                      Dropout Risk: {progressResult.dropoutRiskLevel}
+                    </span>
+                  )}
+                </div>
+
+                <div className="recent-list" style={{ marginTop: "16px" }}>
+                  <div className="recent-item">
+                    <strong>Signals</strong>
+                    <div className="muted" style={{ marginTop: "8px" }}>
+                      Attendance Logs: {progressResult.attendancePresentCountWindow}
+                      <br />
+                      Material Views: {progressResult.materialViewsCountWindow}
+                      <br />
+                      AI Usage Count: {progressResult.aiTotalCountWindow}
+                      <br />
+                      Days Since Login: {progressResult.daysSinceLastLogin}
+                      <br />
+                      Days Since Attendance: {progressResult.daysSinceLastAttendance}
+                      <br />
+                      Avg Engagement Score:{" "}
+                      {progressResult.averageEngagementScore != null
+                        ? Number(progressResult.averageEngagementScore).toFixed(2)
+                        : "N/A"}
+                    </div>
                   </div>
-                  <div className="chart-bar-bg">
-                    <div
-                      className={`chart-bar-fill ${item.fillClass}`}
-                      style={{
-                        width: `${(item.value / maxRiskValue) * 100}%`
-                      }}
-                    />
+
+                  <div className="recent-item">
+                    <strong>Reasons</strong>
+                    <div className="muted" style={{ marginTop: "8px" }}>
+                      {progressResult.reasons?.length ? (
+                        progressResult.reasons.map((reason, index) => (
+                          <div key={index}>• {reason}</div>
+                        ))
+                      ) : (
+                        <div>No reasons available.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
 
           <div className="card full-width-card">
@@ -972,6 +1442,51 @@ const initial = getUserInitial();
 
                     <div className="muted">
                       Probability: {item.dropoutProbability} | Label: {item.predictedLabel}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card full-width-card">
+            <Activity size={24} color="var(--accent)" />
+            <h3>Selected Course Progress Analytics</h3>
+
+            {courseProgressAnalytics.length === 0 ? (
+              <p>No saved progress analytics for this course yet.</p>
+            ) : (
+              <div className="recent-list">
+                {courseProgressAnalytics.map((item, index) => (
+                  <div
+                    className="recent-item"
+                    key={`${item.studentId}-${item.courseId}-${index}`}
+                  >
+                    <div className="recent-top">
+                      <div>
+                        <strong>{item.studentName}</strong>
+                        <div className="muted">{item.studentEmail}</div>
+                      </div>
+
+                      <span
+                        className={`risk-badge ${getProgressStatusClass(
+                          item.status
+                        )}`}
+                      >
+                        {item.status}
+                      </span>
+                    </div>
+
+                    <div className="muted">
+                      {item.courseCode} - {item.courseTitle}
+                    </div>
+
+                    <div className="muted">
+                      Progress Score: {item.progressScore} | Trend: {item.trend}
+                    </div>
+
+                    <div className="muted">
+                      Suggestion: {item.interventionSuggestion}
                     </div>
                   </div>
                 ))}

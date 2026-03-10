@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   askAiChatbot,
   askAiTutor,
@@ -8,7 +8,17 @@ import {
   getMyEnrollments,
   getStudentMaterialsByCourse
 } from "../services/academicService";
-import { Brain, MessageSquare, FileText, ListChecks, BookOpen } from "lucide-react";
+import {
+  Brain,
+  MessageSquare,
+  FileText,
+  ListChecks,
+  BookOpen,
+  Volume2,
+  Square,
+  Mic,
+  MicOff
+} from "lucide-react";
 
 function StudentAiTutor() {
   const [courses, setCourses] = useState([]);
@@ -30,6 +40,17 @@ function StudentAiTutor() {
   const [error, setError] = useState("");
   const [loadingAction, setLoadingAction] = useState("");
   const [materialsLoading, setMaterialsLoading] = useState(false);
+
+  const [ttsSupported, setTtsSupported] = useState(false);
+  const [speakingKey, setSpeakingKey] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState(null);
+
+  const [sttSupported, setSttSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+
+  const utteranceRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const speechBaseQuestionRef = useRef("");
 
   const loadData = async () => {
     try {
@@ -122,8 +143,256 @@ function StudentAiTutor() {
     }
   };
 
+  const stopSpeaking = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const synth = window.speechSynthesis;
+      if (synth.speaking || synth.pending) {
+        synth.cancel();
+      }
+    }
+    utteranceRef.current = null;
+    setSpeakingKey("");
+  };
+
+  const splitTextIntoChunks = (text, maxLength = 180) => {
+    const cleaned = text?.replace(/\s+/g, " ").trim() || "";
+    if (!cleaned) return [];
+
+    const sentences = cleaned.match(/[^.!?]+[.!?]*/g) || [cleaned];
+    const chunks = [];
+    let current = "";
+
+    for (const sentence of sentences) {
+      const next = `${current} ${sentence}`.trim();
+
+      if (next.length <= maxLength) {
+        current = next;
+      } else {
+        if (current) {
+          chunks.push(current);
+        }
+
+        if (sentence.length <= maxLength) {
+          current = sentence.trim();
+        } else {
+          for (let i = 0; i < sentence.length; i += maxLength) {
+            chunks.push(sentence.slice(i, i + maxLength).trim());
+          }
+          current = "";
+        }
+      }
+    }
+
+    if (current) {
+      chunks.push(current);
+    }
+
+    return chunks.filter(Boolean);
+  };
+
+  const speakText = (text, key) => {
+    if (!ttsSupported || !text?.trim()) return;
+
+    if (speakingKey === key) {
+      stopSpeaking();
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+    stopSpeaking();
+    setError("");
+
+    const chunks = splitTextIntoChunks(text);
+    if (chunks.length === 0) return;
+
+    let chunkIndex = 0;
+
+    const speakNextChunk = () => {
+      if (chunkIndex >= chunks.length) {
+        utteranceRef.current = null;
+        setSpeakingKey("");
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+        utterance.lang = selectedVoice.lang || "en-US";
+      } else {
+        utterance.lang = "en-US";
+      }
+
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      utterance.onend = () => {
+        chunkIndex += 1;
+        speakNextChunk();
+      };
+
+      utterance.onerror = (event) => {
+        const errorType = event?.error || "";
+
+        if (
+          errorType === "interrupted" ||
+          errorType === "canceled" ||
+          errorType === "cancelled"
+        ) {
+          utteranceRef.current = null;
+          setSpeakingKey("");
+          return;
+        }
+
+        utteranceRef.current = null;
+        setSpeakingKey("");
+        setError(`Text-to-speech failed${errorType ? `: ${errorType}` : "."}`);
+      };
+
+      utteranceRef.current = utterance;
+      synth.speak(utterance);
+    };
+
+    setSpeakingKey(key);
+
+    setTimeout(() => {
+      speakNextChunk();
+    }, 120);
+  };
+
+  const stopListening = () => {
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    } catch (err) {
+      console.error("Failed to stop speech recognition", err);
+    } finally {
+      setListening(false);
+    }
+  };
+
+  const startListening = () => {
+    if (!sttSupported || !recognitionRef.current) {
+      setError("Speech-to-text is not supported on this browser.");
+      return;
+    }
+
+    try {
+      setError("");
+      speechBaseQuestionRef.current = question.trim()
+        ? `${question.trim()} `
+        : "";
+      recognitionRef.current.start();
+    } catch (err) {
+      console.error("Failed to start speech recognition", err);
+      setError("Unable to start voice input. Please try again.");
+    }
+  };
+
+  const toggleListening = () => {
+    if (listening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
+
   useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const synth = window.speechSynthesis;
+
+      const loadVoices = () => {
+        const voices = synth.getVoices();
+        if (voices.length > 0) {
+          setTtsSupported(true);
+
+          const preferredVoice =
+            voices.find((voice) => voice.lang?.toLowerCase().startsWith("en")) ||
+            voices[0];
+
+          setSelectedVoice(preferredVoice || null);
+        } else {
+          setTtsSupported(false);
+        }
+      };
+
+      loadVoices();
+      synth.onvoiceschanged = loadVoices;
+    }
+
+    if (typeof window !== "undefined") {
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = "en-US";
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+          setListening(true);
+        };
+
+        recognition.onresult = (event) => {
+          const transcript = Array.from(event.results)
+            .map((result) => result[0]?.transcript || "")
+            .join(" ")
+            .trim();
+
+          setQuestion(`${speechBaseQuestionRef.current}${transcript}`.trim());
+        };
+
+        recognition.onerror = (event) => {
+          const errorType = event?.error || "";
+
+          if (
+            errorType === "aborted" ||
+            errorType === "no-speech"
+          ) {
+            setListening(false);
+            return;
+          }
+
+          setListening(false);
+          setError(`Speech-to-text failed${errorType ? `: ${errorType}` : "."}`);
+        };
+
+        recognition.onend = () => {
+          setListening(false);
+        };
+
+        recognitionRef.current = recognition;
+        setSttSupported(true);
+      } else {
+        setSttSupported(false);
+      }
+    }
+
     loadData();
+
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+
+      try {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+      } catch (err) {
+        console.error("Speech recognition cleanup failed", err);
+      }
+
+      utteranceRef.current = null;
+      recognitionRef.current = null;
+      setSpeakingKey("");
+      setListening(false);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -147,6 +416,8 @@ function StudentAiTutor() {
   };
 
   const resetOutputs = () => {
+    stopSpeaking();
+    stopListening();
     setAnswer("");
     setQuiz([]);
     setMessage("");
@@ -366,6 +637,34 @@ function StudentAiTutor() {
           border: 1px solid rgba(255, 213, 72, 0.25);
         }
 
+        .speech-btn {
+          border: 1px solid rgba(255, 213, 72, 0.28);
+          border-radius: 12px;
+          padding: 10px 14px;
+          font-weight: 700;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          transition: 0.25s ease;
+          background: rgba(255, 213, 72, 0.12);
+          color: var(--accent);
+        }
+
+        .speech-btn:hover {
+          transform: translateY(-1px);
+        }
+
+        .speech-btn.stop {
+          background: rgba(248, 113, 113, 0.10);
+          color: var(--danger);
+          border: 1px solid rgba(248, 113, 113, 0.25);
+        }
+
+        .tts-btn {
+          margin-top: 12px;
+        }
+
         .message-box {
           margin-top: 14px;
           padding: 12px 14px;
@@ -477,12 +776,44 @@ function StudentAiTutor() {
               For best AI results, choose a <strong>NOTE</strong> material. LINK and PDF_LINK materials only provide title/description/link info at this stage.
             </div>
 
+            {!ttsSupported && (
+              <div className="message-box info">
+                Text-to-speech is not supported on this browser.
+              </div>
+            )}
+
+            {!sttSupported && (
+              <div className="message-box info">
+                Speech-to-text is not supported on this browser.
+              </div>
+            )}
+
             <textarea
               className="textarea"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="Ask a course-related question..."
             />
+
+            {sttSupported && (
+              <button
+                className={`speech-btn ${listening ? "stop" : ""}`}
+                onClick={toggleListening}
+                type="button"
+              >
+                {listening ? (
+                  <>
+                    <MicOff size={16} />
+                    Stop Voice Input
+                  </>
+                ) : (
+                  <>
+                    <Mic size={16} />
+                    Start Voice Input
+                  </>
+                )}
+              </button>
+            )}
 
             <textarea
               className="textarea"
@@ -569,6 +900,26 @@ function StudentAiTutor() {
                 >
                   {answer}
                 </div>
+
+                {ttsSupported && (
+                  <button
+                    className={`speech-btn tts-btn ${speakingKey === "current-answer" ? "stop" : ""}`}
+                    onClick={() => speakText(answer, "current-answer")}
+                    type="button"
+                  >
+                    {speakingKey === "current-answer" ? (
+                      <>
+                        <Square size={16} />
+                        Stop Reading
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 size={16} />
+                        Read Aloud
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -622,6 +973,26 @@ function StudentAiTutor() {
                   <div className="muted">
                     <strong>Response:</strong> {item.responseText}
                   </div>
+
+                  {ttsSupported && item.responseText && (
+                    <button
+                      className={`speech-btn tts-btn ${speakingKey === `history-${item.interactionId}` ? "stop" : ""}`}
+                      onClick={() => speakText(item.responseText, `history-${item.interactionId}`)}
+                      type="button"
+                    >
+                      {speakingKey === `history-${item.interactionId}` ? (
+                        <>
+                          <Square size={16} />
+                          Stop Reading
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 size={16} />
+                          Read Aloud
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
