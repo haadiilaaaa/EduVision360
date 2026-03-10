@@ -19,31 +19,26 @@ import {
   Users,
   AlertTriangle,
   CheckCircle2,
-  BarChart3   // ✅ add this
+  BarChart3,
+  Settings
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  BarChart,
-  Bar
-} from "recharts";
 import {
   getAdminPredictionSummary,
   getStudentsByCourse,
   getAllAdminPredictions,
   runDropoutPrediction
 } from "../services/predictionService";
-import { getAdminEngagementSummary } from "../services/academicService";
+import {
+  getAdminEngagementSummary,
+  getInstitutionSettings,
+  updateInstitutionSettings
+} from "../services/academicService";
 
 function AdminDashboard() {
   const token = localStorage.getItem("token");
+  const initial = getUserInitial();
 
-  const [activeTab, setActiveTab] = useState("TEACHERS");
+  const [activeTab, setActiveTab] = useState("OVERVIEW");
 
   const [teachers, setTeachers] = useState([]);
   const [availableTeachers, setAvailableTeachers] = useState([]);
@@ -54,7 +49,6 @@ function AdminDashboard() {
   const [deptDescription, setDeptDescription] = useState("");
   const [message, setMessage] = useState("");
   const [editingDeptId, setEditingDeptId] = useState(null);
-
 
   const [courses, setCourses] = useState([]);
   const [courseTitle, setCourseTitle] = useState("");
@@ -68,6 +62,34 @@ function AdminDashboard() {
   const [courseStatus, setCourseStatus] = useState("ACTIVE");
   const [courseMessage, setCourseMessage] = useState("");
   const [editingCourseId, setEditingCourseId] = useState(null);
+
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardSummary, setDashboardSummary] = useState({
+    overview: {
+      totalStudents: 0,
+      totalTeachers: 0,
+      totalAdmins: 0,
+      pendingTeachers: 0,
+      totalDepartments: 0,
+      totalCourses: 0,
+      totalSessions: 0,
+      totalQuizzes: 0,
+      totalAnnouncements: 0,
+      totalMaterials: 0,
+      totalMessages: 0,
+      highRiskCount: 0,
+      mediumRiskCount: 0,
+      lowRiskCount: 0
+    },
+    charts: {
+      usersByRole: [],
+      contentActivity: [],
+      riskDistribution: [],
+      sessionStatusDistribution: [],
+      coursesByDepartment: []
+    },
+    recentActivities: []
+  });
 
   const [predictionSummary, setPredictionSummary] = useState({
     totalPredictions: 0,
@@ -96,27 +118,104 @@ function AdminDashboard() {
   const [predictionLoading, setPredictionLoading] = useState(false);
   const [allPredictions, setAllPredictions] = useState([]);
   const [adminEngagementLoading, setAdminEngagementLoading] = useState(false);
+  const [showPredictionAdvanced, setShowPredictionAdvanced] = useState(false);
 
-  const [business, setBusiness] = useState({
-  totalEnrollments: 0,
-  enrollmentsLast30Days: 0,
-  enrollmentsTrend30Days: [],
-  topCoursesLast30Days: []
-});
-const [businessLoading, setBusinessLoading] = useState(false);
-  const initial = getUserInitial();
+  const [institutionSettings, setInstitutionSettings] = useState({
+    institutionName: "",
+    institutionCode: "",
+    contactEmail: "",
+    contactNumber: "",
+    supportEmail: "",
+    address: "",
+    websiteUrl: "",
+    logoUrl: "",
+    academicYear: "",
+    currentSemester: "",
+    description: "",
+    timezone: "Asia/Colombo",
+    updatedAt: null,
+    updatedByName: ""
+  });
+  const [institutionLoading, setInstitutionLoading] = useState(false);
+  const [institutionMessage, setInstitutionMessage] = useState("");
+
+  const emptyDashboardSummary = {
+    overview: {
+      totalStudents: 0,
+      totalTeachers: 0,
+      totalAdmins: 0,
+      pendingTeachers: 0,
+      totalDepartments: 0,
+      totalCourses: 0,
+      totalSessions: 0,
+      totalQuizzes: 0,
+      totalAnnouncements: 0,
+      totalMaterials: 0,
+      totalMessages: 0,
+      highRiskCount: 0,
+      mediumRiskCount: 0,
+      lowRiskCount: 0
+    },
+    charts: {
+      usersByRole: [],
+      contentActivity: [],
+      riskDistribution: [],
+      sessionStatusDistribution: [],
+      coursesByDepartment: []
+    },
+    recentActivities: []
+  };
+
+  const emptyInstitutionSettings = {
+    institutionName: "",
+    institutionCode: "",
+    contactEmail: "",
+    contactNumber: "",
+    supportEmail: "",
+    address: "",
+    websiteUrl: "",
+    logoUrl: "",
+    academicYear: "",
+    currentSemester: "",
+    description: "",
+    timezone: "Asia/Colombo",
+    updatedAt: null,
+    updatedByName: ""
+  };
 
   const axiosAuth = axios.create({
     baseURL: "http://localhost:8080",
     headers: { Authorization: `Bearer ${token}` }
   });
 
+  const loadAdminDashboardSummary = async () => {
+    try {
+      setDashboardLoading(true);
+      const res = await axiosAuth.get("/api/admin/dashboard/summary");
+      setDashboardSummary(res.data || emptyDashboardSummary);
+    } catch (err) {
+      console.log(
+        "Failed to load admin dashboard summary",
+        err?.response?.status,
+        err?.response?.data
+      );
+      setDashboardSummary(emptyDashboardSummary);
+    } finally {
+      setDashboardLoading(false);
+    }
+  };
+
   const loadPendingTeachers = async () => {
     try {
       const res = await axiosAuth.get("/api/admin/users/pending-teachers");
       setTeachers(res.data || []);
     } catch (err) {
-      console.log("Failed to load pending teachers", err?.response?.status, err?.response?.data);
+      console.log(
+        "Failed to load pending teachers",
+        err?.response?.status,
+        err?.response?.data
+      );
+      setTeachers([]);
     }
   };
 
@@ -130,8 +229,15 @@ const [businessLoading, setBusinessLoading] = useState(false);
       });
       setAvailableTeachers(res.data || []);
     } catch (err) {
-      console.log("Failed to load active teachers", err?.response?.status, err?.response?.data);
-      setCourseMessage(err?.response?.data?.message || "Failed to load active teachers");
+      console.log(
+        "Failed to load active teachers",
+        err?.response?.status,
+        err?.response?.data
+      );
+      setAvailableTeachers([]);
+      setCourseMessage(
+        err?.response?.data?.message || "Failed to load active teachers"
+      );
     }
   };
 
@@ -145,7 +251,12 @@ const [businessLoading, setBusinessLoading] = useState(false);
         setSelectedDeptId(deptData[0].id);
       }
     } catch (err) {
-      console.log("Failed to load departments", err?.response?.status, err?.response?.data);
+      console.log(
+        "Failed to load departments",
+        err?.response?.status,
+        err?.response?.data
+      );
+      setDepartments([]);
       setMessage(err?.response?.data?.message || "Failed to load departments");
     }
   };
@@ -160,7 +271,12 @@ const [businessLoading, setBusinessLoading] = useState(false);
         setPredictionCourseId(courseData[0].id);
       }
     } catch (err) {
-      console.log("Failed to load courses", err?.response?.status, err?.response?.data);
+      console.log(
+        "Failed to load courses",
+        err?.response?.status,
+        err?.response?.data
+      );
+      setCourses([]);
       setCourseMessage(err?.response?.data?.message || "Failed to load courses");
     }
   };
@@ -179,8 +295,30 @@ const [businessLoading, setBusinessLoading] = useState(false);
       );
     } catch (err) {
       console.log("Failed to load admin prediction summary", err);
+      setPredictionSummary({
+        totalPredictions: 0,
+        highRiskCount: 0,
+        mediumRiskCount: 0,
+        lowRiskCount: 0,
+        recentPredictions: []
+      });
     }
   };
+
+  const getProbabilityPercent = (value) => {
+  if (value == null || Number.isNaN(Number(value))) return 0;
+  return Math.max(0, Math.min(100, Math.round(Number(value) * 100)));
+};
+
+const getRiskMessage = (riskLevel) => {
+  if (riskLevel === "HIGH") {
+    return "This student should be prioritized for immediate academic follow-up.";
+  }
+  if (riskLevel === "MEDIUM") {
+    return "This student should be monitored for consistency and engagement.";
+  }
+  return "Current platform activity suggests relatively stable learning behavior.";
+};
 
   const loadAdminEngagementSummary = async () => {
     try {
@@ -240,36 +378,26 @@ const [businessLoading, setBusinessLoading] = useState(false);
     }
   };
 
-   async function loadBusinessAnalytics() {
-  try {
-    setBusinessLoading(true);
-    const res = await axiosAuth.get("/api/admin/analytics/business");
-    setBusiness(
-      res.data || {
-        totalEnrollments: 0,
-        enrollmentsLast30Days: 0,
-        enrollmentsTrend30Days: [],
-        topCoursesLast30Days: []
-      }
-    );
-  } catch (err) {
-    console.log("Failed to load business analytics", err?.response?.status, err?.response?.data);
-    setBusiness({
-      totalEnrollments: 0,
-      enrollmentsLast30Days: 0,
-      enrollmentsTrend30Days: [],
-      topCoursesLast30Days: []
-    });
-  } finally {
-    setBusinessLoading(false);
-  }
-}
+  const loadInstitutionSettings = async () => {
+    try {
+      setInstitutionLoading(true);
+      const res = await getInstitutionSettings();
+      setInstitutionSettings(res.data || emptyInstitutionSettings);
+    } catch (err) {
+      console.log("Failed to load institution settings", err);
+      setInstitutionSettings(emptyInstitutionSettings);
+    } finally {
+      setInstitutionLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!token) {
       console.log("No token found. Login again.");
       return;
     }
+
+    loadAdminDashboardSummary();
     loadPendingTeachers();
     loadActiveTeachers();
     loadDepartments();
@@ -277,7 +405,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
     loadPredictionSummary();
     loadAllPredictions();
     loadAdminEngagementSummary();
-     loadBusinessAnalytics();
+    loadInstitutionSettings();
     // eslint-disable-next-line
   }, [token]);
 
@@ -292,9 +420,15 @@ const [businessLoading, setBusinessLoading] = useState(false);
     try {
       await axiosAuth.post(`/api/admin/users/approve/${id}`, {});
       setTeachers((prev) => prev.filter((t) => t.id !== id));
-      loadActiveTeachers();
+      await loadPendingTeachers();
+      await loadActiveTeachers();
+      await loadAdminDashboardSummary();
     } catch (err) {
-      console.log("Approve teacher failed", err?.response?.status, err?.response?.data);
+      console.log(
+        "Approve teacher failed",
+        err?.response?.status,
+        err?.response?.data
+      );
     }
   };
 
@@ -302,8 +436,14 @@ const [businessLoading, setBusinessLoading] = useState(false);
     try {
       await axiosAuth.post(`/api/admin/users/reject/${id}`, {});
       setTeachers((prev) => prev.filter((t) => t.id !== id));
+      await loadPendingTeachers();
+      await loadAdminDashboardSummary();
     } catch (err) {
-      console.log("Reject teacher failed", err?.response?.status, err?.response?.data);
+      console.log(
+        "Reject teacher failed",
+        err?.response?.status,
+        err?.response?.data
+      );
     }
   };
 
@@ -347,9 +487,14 @@ const [businessLoading, setBusinessLoading] = useState(false);
       }
 
       resetDepartmentForm();
-      loadDepartments();
+      await loadDepartments();
+      await loadAdminDashboardSummary();
     } catch (err) {
-      console.log("Save department failed", err?.response?.status, err?.response?.data);
+      console.log(
+        "Save department failed",
+        err?.response?.status,
+        err?.response?.data
+      );
       setMessage(err?.response?.data?.message || "Save department failed");
     }
   };
@@ -363,10 +508,15 @@ const [businessLoading, setBusinessLoading] = useState(false);
       }
 
       setMessage("Department deleted successfully");
-      loadDepartments();
-      loadCourses();
+      await loadDepartments();
+      await loadCourses();
+      await loadAdminDashboardSummary();
     } catch (err) {
-      console.log("Delete department failed", err?.response?.status, err?.response?.data);
+      console.log(
+        "Delete department failed",
+        err?.response?.status,
+        err?.response?.data
+      );
       setMessage(err?.response?.data?.message || "Delete department failed");
     }
   };
@@ -410,7 +560,9 @@ const [businessLoading, setBusinessLoading] = useState(false);
       !semester ||
       !academicYear.trim()
     ) {
-      setCourseMessage("Course code, title, department, credits, semester, and academic year are required");
+      setCourseMessage(
+        "Course code, title, department, credits, semester, and academic year are required"
+      );
       return;
     }
 
@@ -438,9 +590,14 @@ const [businessLoading, setBusinessLoading] = useState(false);
       }
 
       resetCourseForm();
-      loadCourses();
+      await loadCourses();
+      await loadAdminDashboardSummary();
     } catch (err) {
-      console.log("Save course failed", err?.response?.status, err?.response?.data);
+      console.log(
+        "Save course failed",
+        err?.response?.status,
+        err?.response?.data
+      );
       setCourseMessage(err?.response?.data?.message || "Save course failed");
     }
   };
@@ -454,9 +611,14 @@ const [businessLoading, setBusinessLoading] = useState(false);
       }
 
       setCourseMessage("Course deleted successfully");
-      loadCourses();
+      await loadCourses();
+      await loadAdminDashboardSummary();
     } catch (err) {
-      console.log("Delete course failed", err?.response?.status, err?.response?.data);
+      console.log(
+        "Delete course failed",
+        err?.response?.status,
+        err?.response?.data
+      );
       setCourseMessage(err?.response?.data?.message || "Delete course failed");
     }
   };
@@ -493,8 +655,10 @@ const [businessLoading, setBusinessLoading] = useState(false);
 
       setPredictionResult(res.data);
       setPredictionMessage("Prediction saved successfully.");
+
       await loadPredictionSummary();
       await loadAllPredictions();
+      await loadAdminDashboardSummary();
     } catch (err) {
       setPredictionMessage(
         err?.response?.data?.message ||
@@ -507,60 +671,140 @@ const [businessLoading, setBusinessLoading] = useState(false);
     }
   };
 
+  const saveInstitutionSettings = async () => {
+    setInstitutionMessage("");
+
+    try {
+      const payload = {
+        institutionName: institutionSettings.institutionName,
+        institutionCode: institutionSettings.institutionCode,
+        contactEmail: institutionSettings.contactEmail,
+        contactNumber: institutionSettings.contactNumber,
+        supportEmail: institutionSettings.supportEmail,
+        address: institutionSettings.address,
+        websiteUrl: institutionSettings.websiteUrl,
+        logoUrl: institutionSettings.logoUrl,
+        academicYear: institutionSettings.academicYear,
+        currentSemester: institutionSettings.currentSemester,
+        description: institutionSettings.description,
+        timezone: institutionSettings.timezone
+      };
+
+      const res = await updateInstitutionSettings(payload);
+      setInstitutionSettings(res.data || emptyInstitutionSettings);
+      setInstitutionMessage("Institution settings saved successfully.");
+    } catch (err) {
+      setInstitutionMessage(
+        err?.response?.data?.message ||
+          err?.response?.data ||
+          "Failed to save institution settings."
+      );
+    }
+  };
+
   const getRiskBadgeClass = (riskLevel) => {
     if (riskLevel === "HIGH") return "inactive";
     if (riskLevel === "MEDIUM") return "medium";
     return "active";
   };
 
-  const stats = useMemo(
+  const formatTimestamp = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  };
+
+  const overviewStats = useMemo(
     () => [
       {
-        title: "Pending Teachers",
-        value: teachers.length,
+        title: "Students",
+        value: dashboardSummary.overview.totalStudents || 0,
+        icon: <Users size={20} />
+      },
+      {
+        title: "Teachers",
+        value: dashboardSummary.overview.totalTeachers || 0,
         icon: <ShieldCheck size={20} />
       },
       {
+        title: "Courses",
+        value: dashboardSummary.overview.totalCourses || 0,
+        icon: <BookOpen size={20} />
+      },
+      {
         title: "Departments",
-        value: departments.length,
+        value: dashboardSummary.overview.totalDepartments || 0,
         icon: <Building2 size={20} />
       },
       {
-        title: "Courses",
-        value: courses.length,
-        icon: <BookOpen size={20} />
+        title: "High Risk",
+        value: dashboardSummary.overview.highRiskCount || 0,
+        icon: <ShieldAlert size={20} />
+      },
+      {
+        title: "Quizzes",
+        value: dashboardSummary.overview.totalQuizzes || 0,
+        icon: <Brain size={20} />
       }
     ],
-    [teachers.length, departments.length, courses.length]
+    [dashboardSummary]
   );
 
-  const adminRiskChartData = [
-    { label: "High", value: predictionSummary.highRiskCount, fillClass: "fill-high" },
-    { label: "Medium", value: predictionSummary.mediumRiskCount, fillClass: "fill-medium" },
-    { label: "Low", value: predictionSummary.lowRiskCount, fillClass: "fill-low" }
-  ];
+  const renderChartRows = (items, colorClass = "fill-low") => {
+    const maxValue = Math.max(1, ...(items || []).map((item) => item.value || 0));
 
-  const maxAdminRiskValue = Math.max(
-    1,
-    predictionSummary.highRiskCount,
-    predictionSummary.mediumRiskCount,
-    predictionSummary.lowRiskCount
-  );
+    if (!items || items.length === 0) {
+      return <div className="muted">No chart data yet.</div>;
+    }
 
-  const adminEngagementChartData = [
-    { label: "Attentive", value: adminEngagementSummary.attentiveCount, fillClass: "fill-low" },
-    { label: "Neutral", value: adminEngagementSummary.neutralCount, fillClass: "fill-medium" },
-    { label: "Distracted", value: adminEngagementSummary.distractedCount, fillClass: "fill-high" }
-  ];
+    return items.map((item) => (
+      <div className="chart-row" key={item.label}>
+        <div className="chart-label">
+          <span>{item.label}</span>
+          <span>{item.value}</span>
+        </div>
+        <div className="chart-bar-bg">
+          <div
+            className={`chart-bar-fill ${colorClass}`}
+            style={{ width: `${((item.value || 0) / maxValue) * 100}%` }}
+          />
+        </div>
+      </div>
+    ));
+  };
 
-  const maxAdminEngagementValue = Math.max(
-    1,
-    adminEngagementSummary.attentiveCount,
-    adminEngagementSummary.neutralCount,
-    adminEngagementSummary.distractedCount
-  );
+  const renderRiskRows = (items) => {
+    const maxValue = Math.max(1, ...(items || []).map((item) => item.value || 0));
 
- 
+    if (!items || items.length === 0) {
+      return <div className="muted">No chart data yet.</div>;
+    }
+
+    return items.map((item) => {
+      const fillClass =
+        item.label === "High"
+          ? "fill-high"
+          : item.label === "Medium"
+          ? "fill-medium"
+          : "fill-low";
+
+      return (
+        <div className="chart-row" key={item.label}>
+          <div className="chart-label">
+            <span>{item.label}</span>
+            <span>{item.value}</span>
+          </div>
+          <div className="chart-bar-bg">
+            <div
+              className={`chart-bar-fill ${fillClass}`}
+              style={{ width: `${((item.value || 0) / maxValue) * 100}%` }}
+            />
+          </div>
+        </div>
+      );
+    });
+  };
 
   return (
     <div className="admin-layout">
@@ -652,7 +896,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
         .hero p {
           margin-top: 10px;
           color: var(--text-muted);
-          max-width: 680px;
+          max-width: 760px;
           line-height: 1.6;
         }
 
@@ -690,7 +934,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 18px;
+          margin-bottom: 8px;
         }
 
         .stat-icon {
@@ -934,6 +1178,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
           border: 1px solid rgba(245, 158, 11, 0.28);
           color: var(--text-main);
           font-size: 14px;
+          line-height: 1.6;
         }
 
         .list-panel-inner {
@@ -993,6 +1238,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
           font-weight: 700;
           margin-top: 6px;
           width: fit-content;
+          white-space: nowrap;
         }
 
         .badge.active {
@@ -1092,6 +1338,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
           margin-bottom: 6px;
           font-size: 14px;
           color: var(--text-muted);
+          gap: 12px;
         }
 
         .chart-bar-bg {
@@ -1117,6 +1364,17 @@ const [businessLoading, setBusinessLoading] = useState(false);
 
         .fill-low {
           background: rgba(34, 197, 94, 0.8);
+        }
+
+        .logo-preview {
+          max-width: 180px;
+          max-height: 180px;
+          object-fit: contain;
+          margin-top: 10px;
+          border-radius: 12px;
+          border: 1px solid var(--border-soft);
+          padding: 8px;
+          background: var(--bg-card);
         }
 
         @media (max-width: 1100px) {
@@ -1151,6 +1409,154 @@ const [businessLoading, setBusinessLoading] = useState(false);
             justify-content: flex-start;
           }
         }
+          .advanced-toggle {
+  background: var(--bg-card-2);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 11px 15px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: 0.25s ease;
+}
+
+.advanced-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255,213,72,0.35);
+}
+
+.advanced-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed var(--border-color);
+  background: var(--bg-card-2);
+}
+
+.prediction-result-card {
+  margin-top: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 20px;
+  padding: 18px;
+  background: var(--bg-card-2);
+}
+
+.prediction-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.prediction-result-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.prediction-result-subtitle {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.prediction-probability-box {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+}
+
+.prediction-probability-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.prediction-probability-value {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--text-main);
+}
+
+.prediction-progress {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+
+.prediction-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.prediction-progress-fill.high {
+  background: rgba(239, 68, 68, 0.85);
+}
+
+.prediction-progress-fill.medium {
+  background: rgba(245, 158, 11, 0.85);
+}
+
+.prediction-progress-fill.low {
+  background: rgba(34, 197, 94, 0.85);
+}
+
+.prediction-metric-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+}
+
+.prediction-metric-card {
+  grid-column: span 4;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+}
+
+.prediction-metric-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.prediction-metric-value {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+.prediction-interpretation {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 213, 72, 0.08);
+  border: 1px solid rgba(255, 213, 72, 0.20);
+  color: var(--text-main);
+  line-height: 1.6;
+}
+
+@media (max-width: 700px) {
+  .prediction-metric-card {
+    grid-column: span 12;
+  }
+}
       `}</style>
 
       <Menu />
@@ -1166,7 +1572,7 @@ const [businessLoading, setBusinessLoading] = useState(false);
             <div className="icon-circle">
               <Bell size={18} color="var(--text-soft)" />
             </div>
-           <div className="avatar">{initial}</div>
+            <div className="avatar">{initial}</div>
           </div>
         </header>
 
@@ -1174,27 +1580,21 @@ const [businessLoading, setBusinessLoading] = useState(false);
           <div>
             <h2>Admin Control Center</h2>
             <p>
-              Manage teacher verification, departments, courses, and AI-powered
-              student risk and engagement analytics from one organized dashboard.
+              Manage institutional operations, academic structure, dropout risk,
+              communication activity, engagement indicators, and institution
+              profile settings from one structured administrative dashboard.
             </p>
           </div>
         </section>
 
-        <section className="overview-grid">
-          {stats.map((item) => (
-            <div className="stat-card" key={item.title}>
-              <div className="stat-top">
-                <div>
-                  <div className="stat-title">{item.title}</div>
-                  <div className="stat-value">{item.value}</div>
-                </div>
-                <div className="stat-icon">{item.icon}</div>
-              </div>
-            </div>
-          ))}
-        </section>
-
         <div className="section-switch">
+          <button
+            className={`tab-btn ${activeTab === "OVERVIEW" ? "active" : ""}`}
+            onClick={() => setActiveTab("OVERVIEW")}
+          >
+            <LayoutDashboard size={16} /> Overview
+          </button>
+
           <button
             className={`tab-btn ${activeTab === "TEACHERS" ? "active" : ""}`}
             onClick={() => setActiveTab("TEACHERS")}
@@ -1223,16 +1623,267 @@ const [businessLoading, setBusinessLoading] = useState(false);
             <Brain size={16} /> Predictions
           </button>
 
-         <button
-  className={`tab-btn ${activeTab === "BUSINESS" ? "active" : ""}`}
-  onClick={() => {
-    setActiveTab("BUSINESS");
-    loadBusinessAnalytics(); // ✅ refresh on click
-  }}
->
-  <BarChart3 size={16} /> Business Analytics
-</button>
+          <button
+            className={`tab-btn ${activeTab === "INSTITUTION" ? "active" : ""}`}
+            onClick={() => setActiveTab("INSTITUTION")}
+          >
+            <Settings size={16} /> Institution
+          </button>
         </div>
+
+        {activeTab === "OVERVIEW" && (
+          <div className="content-card">
+            <div className="section-header">
+              <h3 className="section-title">
+                <LayoutDashboard size={19} />
+                Administrative Overview
+              </h3>
+              <span className="section-subtitle">
+                Real analytics based on live system data
+              </span>
+            </div>
+
+            {dashboardLoading ? (
+              <div className="empty-state">
+                <BarChart3 size={40} style={{ opacity: 0.5 }} />
+                <div>Loading dashboard summary...</div>
+              </div>
+            ) : (
+              <>
+                <div className="overview-grid" style={{ marginBottom: "22px" }}>
+                  {overviewStats.map((item) => (
+                    <div className="stat-card" key={item.title}>
+                      <div className="stat-top">
+                        <div>
+                          <div className="stat-title">{item.title}</div>
+                          <div className="stat-value">{item.value}</div>
+                        </div>
+                        <div className="stat-icon">{item.icon}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="management-grid">
+                  <div className="form-panel">
+                    <h4 className="panel-heading">Users by Role</h4>
+                    <div className="chart-box">
+                      {renderChartRows(
+                        dashboardSummary.charts.usersByRole,
+                        "fill-low"
+                      )}
+                    </div>
+
+                    <h4 className="panel-heading">Content Activity</h4>
+                    <div className="chart-box">
+                      {renderChartRows(
+                        dashboardSummary.charts.contentActivity,
+                        "fill-medium"
+                      )}
+                    </div>
+
+                    <h4 className="panel-heading">Risk Distribution</h4>
+                    <div className="chart-box">
+                      {renderRiskRows(dashboardSummary.charts.riskDistribution)}
+                    </div>
+                  </div>
+
+                  <div className="list-panel">
+                    <h4 className="panel-heading">Recent Activity</h4>
+
+                    {dashboardSummary.recentActivities?.length === 0 ? (
+                      <div className="empty-state">
+                        <BarChart3 size={40} style={{ opacity: 0.5 }} />
+                        <div>No recent activity found.</div>
+                      </div>
+                    ) : (
+                      <div className="list-panel-inner">
+                        {dashboardSummary.recentActivities.map((item, index) => (
+                          <div
+                            className="list-item"
+                            key={`${item.type}-${item.timestamp}-${index}`}
+                          >
+                            <div>
+                              <div className="list-item-title">{item.title}</div>
+                              <div className="muted">{item.subtitle}</div>
+                              <div className="muted">
+                                {formatTimestamp(item.timestamp)}
+                              </div>
+                            </div>
+
+                            <div className="item-actions">
+                              <div className="badge active">{item.type}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="management-grid" style={{ marginTop: "20px" }}>
+                  <div className="form-panel">
+                    <h4 className="panel-heading">Session Status Distribution</h4>
+                    <div className="chart-box">
+                      {renderChartRows(
+                        dashboardSummary.charts.sessionStatusDistribution,
+                        "fill-low"
+                      )}
+                    </div>
+
+                    <h4 className="panel-heading">Courses by Department</h4>
+                    <div className="chart-box">
+                      {renderChartRows(
+                        dashboardSummary.charts.coursesByDepartment,
+                        "fill-medium"
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="list-panel">
+                    <h4 className="panel-heading">Engagement Snapshot</h4>
+
+                    <div className="overview-grid" style={{ marginBottom: "14px" }}>
+                      <div className="stat-card">
+                        <div className="stat-top">
+                          <div>
+                            <div className="stat-title">Total Logs</div>
+                            <div className="stat-value">
+                              {adminEngagementSummary.totalLogs || 0}
+                            </div>
+                          </div>
+                          <div className="stat-icon">
+                            <Brain size={20} />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-top">
+                          <div>
+                            <div className="stat-title">Attentive</div>
+                            <div className="stat-value">
+                              {adminEngagementSummary.attentiveCount || 0}
+                            </div>
+                          </div>
+                          <div className="stat-icon">
+                            <CheckCircle2 size={20} />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-top">
+                          <div>
+                            <div className="stat-title">Neutral</div>
+                            <div className="stat-value">
+                              {adminEngagementSummary.neutralCount || 0}
+                            </div>
+                          </div>
+                          <div className="stat-icon">
+                            <AlertTriangle size={20} />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-top">
+                          <div>
+                            <div className="stat-title">Distracted</div>
+                            <div className="stat-value">
+                              {adminEngagementSummary.distractedCount || 0}
+                            </div>
+                          </div>
+                          <div className="stat-icon">
+                            <ShieldAlert size={20} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="info-box">
+                      {adminEngagementLoading ? (
+                        "Loading engagement summary..."
+                      ) : (
+                        <>
+                          Average Engagement Score:{" "}
+                          <strong>
+                            {Number(
+                              adminEngagementSummary.averageScore || 0
+                            ).toFixed(2)}
+                          </strong>
+                        </>
+                      )}
+                    </div>
+
+                    <h4 className="panel-heading">Recent Engagement Logs</h4>
+
+                    {adminEngagementLoading ? (
+                      <div className="empty-state">
+                        <Brain size={40} style={{ opacity: 0.5 }} />
+                        <div>Loading recent engagement logs...</div>
+                      </div>
+                    ) : adminEngagementSummary.recentLogs?.length === 0 ? (
+                      <div className="empty-state">
+                        <Brain size={40} style={{ opacity: 0.5 }} />
+                        <div>No engagement logs found yet.</div>
+                      </div>
+                    ) : (
+                      <div className="list-panel-inner">
+                        {adminEngagementSummary.recentLogs
+                          .slice(0, 8)
+                          .map((item, index) => (
+                            <div
+                              className="list-item"
+                              key={`${item.studentId}-${item.capturedAt}-${index}`}
+                            >
+                              <div>
+                                <div className="list-item-title">
+                                  {item.studentName || "Student"}
+                                </div>
+                                <div className="muted">
+                                  {item.studentEmail || "-"}
+                                </div>
+                                <div className="muted">
+                                  Course: {item.courseId || "-"} | Session:{" "}
+                                  {item.sessionId || "-"}
+                                </div>
+                                <div className="muted">
+                                  Emotion:{" "}
+                                  <strong>{item.dominantEmotion || "N/A"}</strong>
+                                </div>
+                                <div className="muted">
+                                  Score: {item.engagementScore ?? "-"} |
+                                  Confidence:{" "}
+                                  {item.confidence != null
+                                    ? Number(item.confidence).toFixed(2)
+                                    : "-"}
+                                </div>
+                              </div>
+
+                              <div className="item-actions">
+                                <div
+                                  className={`badge ${
+                                    item.label === "ATTENTIVE"
+                                      ? "active"
+                                      : item.label === "NEUTRAL"
+                                      ? "medium"
+                                      : "inactive"
+                                  }`}
+                                >
+                                  {item.label || "UNKNOWN"}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {activeTab === "TEACHERS" && (
           <div className="content-card">
@@ -1267,10 +1918,16 @@ const [businessLoading, setBusinessLoading] = useState(false);
                     </div>
 
                     <div className="teacher-actions">
-                      <button className="btn-reject" onClick={() => rejectTeacher(t.id)}>
+                      <button
+                        className="btn-reject"
+                        onClick={() => rejectTeacher(t.id)}
+                      >
                         Reject
                       </button>
-                      <button className="btn-approve" onClick={() => approveTeacher(t.id)}>
+                      <button
+                        className="btn-approve"
+                        onClick={() => approveTeacher(t.id)}
+                      >
                         <CheckCircle size={16} />
                         Approve
                       </button>
@@ -1392,133 +2049,6 @@ const [businessLoading, setBusinessLoading] = useState(false);
           </div>
         )}
 
-       {activeTab === "BUSINESS" && (
-  <div className="content-card">
-    <div className="section-header">
-      <h3 className="section-title">
-        <BarChart3 size={19} />
-        Business & Enrollment Analytics
-      </h3>
-      <span className="section-subtitle">
-        Enrollment growth + top courses (last 30 days)
-      </span>
-    </div>
-
-    {/* KPI Cards */}
-    <div className="overview-grid" style={{ marginBottom: "22px" }}>
-      <div className="stat-card">
-        <div className="stat-top">
-          <div>
-            <div className="stat-title">Total Enrollments</div>
-            <div className="stat-value">{business.totalEnrollments}</div>
-          </div>
-          <div className="stat-icon"><Users size={20} /></div>
-        </div>
-      </div>
-
-      <div className="stat-card">
-        <div className="stat-top">
-          <div>
-            <div className="stat-title">Enrollments (Last 30 Days)</div>
-            <div className="stat-value">{business.enrollmentsLast30Days}</div>
-          </div>
-          <div className="stat-icon"><BarChart3 size={20} /></div>
-        </div>
-      </div>
-    </div>
-
-    {/* Enrollment Trend Line Chart */}
-    <div className="chart-box">
-      <h4 className="panel-heading">Enrollment Trend (Last 30 Days)</h4>
-
-      {businessLoading ? (
-        <div className="muted">Loading trend...</div>
-      ) : (business.enrollmentsTrend30Days?.length || 0) === 0 ? (
-        <div className="muted">No trend data yet.</div>
-      ) : (
-        <div style={{ width: "100%", height: 280 }}>
-          <ResponsiveContainer>
-            <LineChart data={business.enrollmentsTrend30Days}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-              <XAxis
-                dataKey="day"
-                tickFormatter={(v) => (v?.length >= 10 ? v.slice(5) : v)}
-                minTickGap={18}
-              />
-              <YAxis allowDecimals={false} />
-              <Tooltip
-                contentStyle={{
-                  background: "rgba(7, 18, 31, 0.95)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 12
-                }}
-                labelStyle={{ color: "white" }}
-              />
-              <Line
-                type="monotone"
-                dataKey="count"
-                stroke="var(--accent)"
-                strokeWidth={3}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-
-    {/* Top Courses Bar Chart */}
-    <div className="chart-box">
-      <h4 className="panel-heading">Top Courses (Last 30 Days)</h4>
-
-      {businessLoading ? (
-        <div className="muted">Loading top courses...</div>
-      ) : (business.topCoursesLast30Days?.length || 0) === 0 ? (
-        <div className="muted">No enrollments found in last 30 days.</div>
-      ) : (
-        <div style={{ width: "100%", height: 280 }}>
-          <ResponsiveContainer>
-            <BarChart
-              data={business.topCoursesLast30Days.map((c) => ({
-                name: c.courseCode,
-                count: c.count
-              }))}
-            >
-              <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-              <XAxis dataKey="name" />
-              <YAxis allowDecimals={false} />
-              <Tooltip
-                contentStyle={{
-                  background: "rgba(7, 18, 31, 0.95)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 12
-                }}
-                labelStyle={{ color: "white" }}
-              />
-              <Bar dataKey="count" fill="var(--accent)" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-
-    {/* Quick Insights (nice for demo) */}
-    <div className="info-box">
-      {(() => {
-        const top = (business.topCoursesLast30Days || [])[0];
-        const peak = [...(business.enrollmentsTrend30Days || [])].sort((a, b) => b.count - a.count)[0];
-        return (
-          <>
-            <strong>Quick Insights:</strong>{" "}
-            {top ? `Top course: ${top.courseCode} (${top.count} enrollments). ` : "No top course yet. "}
-            {peak ? `Peak day: ${peak.day} (${peak.count}).` : ""}
-          </>
-        );
-      })()}
-    </div>
-  </div>
-)}
-
         {activeTab === "COURSES" && (
           <div className="content-card">
             <div className="section-header">
@@ -1537,7 +2067,9 @@ const [businessLoading, setBusinessLoading] = useState(false);
                   {editingCourseId ? "Edit Course" : "Add New Course"}
                 </h4>
 
-                {courseMessage && <div className="message-text">{courseMessage}</div>}
+                {courseMessage && (
+                  <div className="message-text">{courseMessage}</div>
+                )}
 
                 <div className="form-grid">
                   <input
@@ -1663,14 +2195,22 @@ const [businessLoading, setBusinessLoading] = useState(false);
                           </div>
 
                           <div className="muted">
-                            Department: {c.departmentName || "-"} | Credits: {c.creditValue} | Semester: {c.semester} | Year: {c.academicYear}
+                            Department: {c.departmentName || "-"} | Credits:{" "}
+                            {c.creditValue} | Semester: {c.semester} | Year:{" "}
+                            {c.academicYear}
                           </div>
 
                           <div className="muted">
                             Teacher: {c.teacherName || "Not assigned"}
                           </div>
 
-                          <div className={`badge ${(c.status || "ACTIVE") === "ACTIVE" ? "active" : "inactive"}`}>
+                          <div
+                            className={`badge ${
+                              (c.status || "ACTIVE") === "ACTIVE"
+                                ? "active"
+                                : "inactive"
+                            }`}
+                          >
                             {c.status || "ACTIVE"}
                           </div>
 
@@ -1708,324 +2248,575 @@ const [businessLoading, setBusinessLoading] = useState(false);
         )}
 
         {activeTab === "PREDICTIONS" && (
-          <div className="content-card">
-            <div className="section-header">
-              <h3 className="section-title">
-                <Brain size={19} />
-                Dropout Prediction Analytics
-              </h3>
-              <span className="section-subtitle">
-                Run, save, and monitor student dropout risk predictions
-              </span>
+  <div className="content-card">
+    <div className="section-header">
+      <h3 className="section-title">
+        <Brain size={19} />
+        Dropout Prediction Analytics
+      </h3>
+      <span className="section-subtitle">
+        Run, save, and monitor student dropout risk predictions
+      </span>
+    </div>
+
+    <div className="overview-grid" style={{ marginBottom: "22px" }}>
+      <div className="stat-card">
+        <div className="stat-top">
+          <div>
+            <div className="stat-title">Total Predictions</div>
+            <div className="stat-value">
+              {predictionSummary.totalPredictions}
             </div>
+          </div>
+          <div className="stat-icon">
+            <Users size={20} />
+          </div>
+        </div>
+      </div>
 
-            <div className="overview-grid" style={{ marginBottom: "22px" }}>
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Total Predictions</div>
-                    <div className="stat-value">{predictionSummary.totalPredictions}</div>
-                  </div>
-                  <div className="stat-icon"><Users size={20} /></div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">High Risk</div>
-                    <div className="stat-value">{predictionSummary.highRiskCount}</div>
-                  </div>
-                  <div className="stat-icon"><ShieldAlert size={20} /></div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Medium Risk</div>
-                    <div className="stat-value">{predictionSummary.mediumRiskCount}</div>
-                  </div>
-                  <div className="stat-icon"><AlertTriangle size={20} /></div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Low Risk</div>
-                    <div className="stat-value">{predictionSummary.lowRiskCount}</div>
-                  </div>
-                  <div className="stat-icon"><CheckCircle2 size={20} /></div>
-                </div>
-              </div>
+      <div className="stat-card">
+        <div className="stat-top">
+          <div>
+            <div className="stat-title">High Risk</div>
+            <div className="stat-value">
+              {predictionSummary.highRiskCount}
             </div>
+          </div>
+          <div className="stat-icon">
+            <ShieldAlert size={20} />
+          </div>
+        </div>
+      </div>
 
-            <div className="chart-box">
-              <h4 className="panel-heading">Risk Distribution Chart</h4>
-              {adminRiskChartData.map((item) => (
-                <div className="chart-row" key={item.label}>
-                  <div className="chart-label">
-                    <span>{item.label}</span>
-                    <span>{item.value}</span>
-                  </div>
-                  <div className="chart-bar-bg">
-                    <div
-                      className={`chart-bar-fill ${item.fillClass}`}
-                      style={{ width: `${(item.value / maxAdminRiskValue) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+      <div className="stat-card">
+        <div className="stat-top">
+          <div>
+            <div className="stat-title">Medium Risk</div>
+            <div className="stat-value">
+              {predictionSummary.mediumRiskCount}
             </div>
+          </div>
+          <div className="stat-icon">
+            <AlertTriangle size={20} />
+          </div>
+        </div>
+      </div>
 
-            <div className="section-header" style={{ marginTop: "12px" }}>
-              <h3 className="section-title">
-                <Brain size={19} />
-                Institution-wide Engagement & Emotion Analytics
-              </h3>
-              <span className="section-subtitle">
-                View total logs, engagement distribution, average score, and recent emotions
-              </span>
+      <div className="stat-card">
+        <div className="stat-top">
+          <div>
+            <div className="stat-title">Low Risk</div>
+            <div className="stat-value">
+              {predictionSummary.lowRiskCount}
             </div>
+          </div>
+          <div className="stat-icon">
+            <CheckCircle2 size={20} />
+          </div>
+        </div>
+      </div>
+    </div>
 
-            <div className="overview-grid" style={{ marginBottom: "22px" }}>
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Total Logs</div>
-                    <div className="stat-value">{adminEngagementSummary.totalLogs}</div>
-                  </div>
-                  <div className="stat-icon"><Users size={20} /></div>
-                </div>
-              </div>
+    <div className="chart-box">
+      <h4 className="panel-heading">Risk Distribution Chart</h4>
+      {renderRiskRows([
+        { label: "High", value: predictionSummary.highRiskCount || 0 },
+        { label: "Medium", value: predictionSummary.mediumRiskCount || 0 },
+        { label: "Low", value: predictionSummary.lowRiskCount || 0 }
+      ])}
+    </div>
 
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Attentive</div>
-                    <div className="stat-value">{adminEngagementSummary.attentiveCount}</div>
-                  </div>
-                  <div className="stat-icon"><CheckCircle2 size={20} /></div>
-                </div>
-              </div>
+    <div className="management-grid">
+      <div className="form-panel">
+        <h4 className="panel-heading">Run Prediction</h4>
 
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Neutral</div>
-                    <div className="stat-value">{adminEngagementSummary.neutralCount}</div>
-                  </div>
-                  <div className="stat-icon"><AlertTriangle size={20} /></div>
-                </div>
-              </div>
+        <div className="info-box">
+          This analysis uses the deployed XGBoost model with live behavioral learning features from the system.
+        </div>
 
-              <div className="stat-card">
-                <div className="stat-top">
-                  <div>
-                    <div className="stat-title">Distracted</div>
-                    <div className="stat-value">{adminEngagementSummary.distractedCount}</div>
-                  </div>
-                  <div className="stat-icon"><ShieldAlert size={20} /></div>
-                </div>
-              </div>
-            </div>
+        {predictionMessage && (
+          <div className="message-text">{predictionMessage}</div>
+        )}
 
-            <div className="info-box">
-              {adminEngagementLoading
-                ? "Loading admin engagement summary..."
-                : <>Average Engagement Score: <strong>{Number(adminEngagementSummary.averageScore || 0).toFixed(2)}</strong></>}
-            </div>
+        <div className="form-grid">
+          <select
+            className="select"
+            value={predictionCourseId}
+            onChange={(e) => setPredictionCourseId(e.target.value)}
+          >
+            <option value="">Select course</option>
+            {courses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.courseCode} - {c.title}
+              </option>
+            ))}
+          </select>
 
-            <div className="chart-box">
-              <h4 className="panel-heading">Engagement Distribution Chart</h4>
-              {adminEngagementChartData.map((item) => (
-                <div className="chart-row" key={item.label}>
-                  <div className="chart-label">
-                    <span>{item.label}</span>
-                    <span>{item.value}</span>
-                  </div>
-                  <div className="chart-bar-bg">
-                    <div
-                      className={`chart-bar-fill ${item.fillClass}`}
-                      style={{ width: `${(item.value / maxAdminEngagementValue) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+          <select
+            className="select"
+            value={predictionStudentId}
+            onChange={(e) => setPredictionStudentId(e.target.value)}
+          >
+            <option value="">Select student</option>
+            {predictionStudents.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.fullName} {s.studentCode ? `(${s.studentCode})` : ""}
+              </option>
+            ))}
+          </select>
 
-            <div className="list-panel" style={{ marginBottom: "22px" }}>
-              <h4 className="panel-heading">Recent Engagement & Emotion Logs</h4>
+          <select
+            className="select"
+            value={predictionWindowDays}
+            onChange={(e) => setPredictionWindowDays(Number(e.target.value))}
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+          </select>
 
-              {adminEngagementLoading ? (
-                <div className="empty-state">
-                  <Brain size={40} style={{ opacity: 0.5 }} />
-                  <div>Loading recent engagement logs...</div>
-                </div>
-              ) : adminEngagementSummary.recentLogs?.length === 0 ? (
-                <div className="empty-state">
-                  <Brain size={40} style={{ opacity: 0.5 }} />
-                  <div>No engagement logs found yet.</div>
-                </div>
-              ) : (
-                <div className="list-panel-inner">
-                  {adminEngagementSummary.recentLogs.map((item, index) => (
-                    <div className="list-item" key={`${item.studentId}-${item.capturedAt}-${index}`}>
-                      <div>
-                        <div className="list-item-title">
-                          {item.studentName || "Student"}
-                        </div>
-                        <div className="muted">{item.studentEmail || "-"}</div>
-                        <div className="muted">
-                          Course: {item.courseId || "-"} | Session: {item.sessionId || "-"}
-                        </div>
-                        <div className="muted">
-                          Emotion: <strong>{item.dominantEmotion || "N/A"}</strong>{" "}
-                          {item.emotionConfidence != null
-                            ? `| Emotion Confidence: ${Number(item.emotionConfidence).toFixed(2)}`
-                            : ""}
-                        </div>
-                        <div className="muted">
-                          Score: {item.engagementScore ?? "-"} | Confidence:{" "}
-                          {item.confidence != null ? Number(item.confidence).toFixed(2) : "-"}
-                        </div>
-                      </div>
+          <div className="action-row">
+            <button
+              className="primary-btn"
+              onClick={handleAdminRunPrediction}
+              disabled={predictionLoading}
+            >
+              <Brain size={16} />
+              {predictionLoading ? "Running..." : "Run & Save Prediction"}
+            </button>
 
-                      <div className="item-actions">
-                        <div className={`badge ${getRiskBadgeClass(item.label === "ATTENTIVE" ? "LOW" : item.label === "NEUTRAL" ? "MEDIUM" : "HIGH")}`}>
-                          {item.label}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              className="advanced-toggle"
+              onClick={() => setShowPredictionAdvanced((prev) => !prev)}
+            >
+              {showPredictionAdvanced
+                ? "Hide Advanced Options"
+                : "Show Advanced Options"}
+            </button>
+          </div>
+        </div>
 
-            <div className="management-grid">
-              <div className="form-panel">
-                <h4 className="panel-heading">Run Prediction</h4>
-
-                <div className="info-box">
-                  Optional override JSON can be left empty. Use it only when you
-                  actually have extra feature values available.
-                </div>
-
-                {predictionMessage && (
-                  <div className="message-text">{predictionMessage}</div>
-                )}
-
-                <div className="form-grid">
-                  <select
-                    className="select"
-                    value={predictionCourseId}
-                    onChange={(e) => setPredictionCourseId(e.target.value)}
-                  >
-                    <option value="">Select course</option>
-                    {courses.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.courseCode} - {c.title}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    className="select"
-                    value={predictionStudentId}
-                    onChange={(e) => setPredictionStudentId(e.target.value)}
-                  >
-                    <option value="">Select student</option>
-                    {predictionStudents.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.fullName} {s.studentCode ? `(${s.studentCode})` : ""}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    className="select"
-                    value={predictionWindowDays}
-                    onChange={(e) => setPredictionWindowDays(Number(e.target.value))}
-                  >
-                    <option value={7}>Last 7 days</option>
-                    <option value={14}>Last 14 days</option>
-                    <option value={30}>Last 30 days</option>
-                  </select>
-
-                  <textarea
-                    className="textarea"
-                    value={predictionFeaturesText}
-                    onChange={(e) => setPredictionFeaturesText(e.target.value)}
-                    placeholder={`Optional JSON, for example:
+        {showPredictionAdvanced && (
+          <div className="advanced-panel">
+            <textarea
+              className="textarea"
+              value={predictionFeaturesText}
+              onChange={(e) => setPredictionFeaturesText(e.target.value)}
+              placeholder={`Optional JSON, for example:
 {
   "days_since_last_login": 10,
   "material_views_count_window": 2
 }`}
-                  />
+            />
+          </div>
+        )}
 
-                  <button
-                    className="primary-btn"
-                    onClick={handleAdminRunPrediction}
-                    disabled={predictionLoading}
-                  >
-                    <Brain size={16} />
-                    {predictionLoading ? "Running..." : "Run & Save Prediction"}
-                  </button>
+        {predictionResult && (
+          <div className="prediction-result-card">
+            <div className="prediction-result-header">
+              <div>
+                <h4 className="prediction-result-title">
+                  Latest Prediction Result
+                </h4>
+                <div className="prediction-result-subtitle">
+                  {predictionResult.studentName} • {predictionResult.courseCode} -{" "}
+                  {predictionResult.courseTitle}
+                </div>
+              </div>
+
+              <div
+                className={`badge ${getRiskBadgeClass(
+                  predictionResult.riskLevel
+                )}`}
+              >
+                {predictionResult.riskLevel} RISK
+              </div>
+            </div>
+
+            <div className="prediction-probability-box">
+              <div className="prediction-probability-top">
+                <div className="muted">Dropout Probability</div>
+                <div className="prediction-probability-value">
+                  {getProbabilityPercent(predictionResult.dropoutProbability)}%
+                </div>
+              </div>
+
+              <div className="prediction-progress">
+                <div
+                  className={`prediction-progress-fill ${
+                    predictionResult.riskLevel === "HIGH"
+                      ? "high"
+                      : predictionResult.riskLevel === "MEDIUM"
+                      ? "medium"
+                      : "low"
+                  }`}
+                  style={{
+                    width: `${getProbabilityPercent(
+                      predictionResult.dropoutProbability
+                    )}%`
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="prediction-metric-grid">
+              <div className="prediction-metric-card">
+                <div className="prediction-metric-label">Predicted Label</div>
+                <div className="prediction-metric-value">
+                  {predictionResult.predictedLabel || "-"}
+                </div>
+              </div>
+
+              <div className="prediction-metric-card">
+                <div className="prediction-metric-label">Threshold</div>
+                <div className="prediction-metric-value">
+                  {predictionResult.threshold ?? "-"}
+                </div>
+              </div>
+
+              <div className="prediction-metric-card">
+                <div className="prediction-metric-label">Generated At</div>
+                <div className="prediction-metric-value">
+                  {formatTimestamp(predictionResult.predictedAt)}
+                </div>
+              </div>
+
+              <div className="prediction-metric-card">
+                <div className="prediction-metric-label">Model</div>
+                <div className="prediction-metric-value">
+                  {predictionResult.modelName || "XGBoost"}
+                </div>
+              </div>
+
+              <div className="prediction-metric-card">
+                <div className="prediction-metric-label">Scoring Mode</div>
+                <div className="prediction-metric-value">
+                  {predictionResult.scoringMode || "-"}
+                </div>
+              </div>
+
+              <div className="prediction-metric-card">
+                <div className="prediction-metric-label">Student Email</div>
+                <div className="prediction-metric-value">
+                  {predictionResult.studentEmail || "-"}
+                </div>
+              </div>
+            </div>
+
+            <div className="prediction-interpretation">
+              <strong>Interpretation:</strong>{" "}
+              {getRiskMessage(predictionResult.riskLevel)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="list-panel">
+        <h4 className="panel-heading">All Saved Predictions</h4>
+
+        {allPredictions.length === 0 ? (
+          <div className="empty-state">
+            <Brain size={40} style={{ opacity: 0.5 }} />
+            <div>No saved predictions yet.</div>
+          </div>
+        ) : (
+          <div className="list-panel-inner">
+            {allPredictions.map((item, index) => (
+              <div
+                className="list-item"
+                key={`${item.studentId}-${item.courseId}-${index}`}
+              >
+                <div>
+                  <div className="list-item-title">{item.studentName}</div>
+                  <div className="muted">{item.studentEmail}</div>
+                  <div className="muted">
+                    {item.courseCode} — {item.courseTitle}
+                  </div>
+                  <div className="muted">
+                    Probability: {item.dropoutProbability} | Label:{" "}
+                    {item.predictedLabel}
+                  </div>
+                  <div className="muted">
+                    Model: {item.modelName || "XGBoost"} | Scoring:{" "}
+                    {item.scoringMode || "-"}
+                  </div>
+                  <div className="muted">
+                    Predicted At: {formatTimestamp(item.predictedAt)}
+                  </div>
                 </div>
 
-                {predictionResult && (
-                  <div style={{ marginTop: "14px" }} className="list-item">
-                    <div>
-                      <div className="list-item-title">{predictionResult.studentName}</div>
-                      <div className="muted">{predictionResult.studentEmail}</div>
-                      <div className="muted">
-                        {predictionResult.courseCode} - {predictionResult.courseTitle}
-                      </div>
-                      <div className="muted">
-                        Probability: {predictionResult.dropoutProbability} | Label: {predictionResult.predictedLabel}
-                      </div>
+                <div className="item-actions">
+                  <div className={`badge ${getRiskBadgeClass(item.riskLevel)}`}>
+                    {item.riskLevel}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
+        {activeTab === "INSTITUTION" && (
+          <div className="content-card">
+            <div className="section-header">
+              <h3 className="section-title">
+                <Settings size={19} />
+                Institution Settings
+              </h3>
+              <span className="section-subtitle">
+                Maintain core institutional profile and academic context
+              </span>
+            </div>
+
+            <div className="management-grid">
+              <div className="form-panel">
+                <h4 className="panel-heading">Edit Institution Details</h4>
+
+                {institutionMessage && (
+                  <div className="message-text">{institutionMessage}</div>
+                )}
+
+                {institutionLoading ? (
+                  <div className="muted">Loading institution settings...</div>
+                ) : (
+                  <div className="form-grid">
+                    <input
+                      className="input"
+                      placeholder="Institution name"
+                      value={institutionSettings.institutionName || ""}
+                      onChange={(e) =>
+                        setInstitutionSettings((prev) => ({
+                          ...prev,
+                          institutionName: e.target.value
+                        }))
+                      }
+                    />
+
+                    <input
+                      className="input"
+                      placeholder="Institution code"
+                      value={institutionSettings.institutionCode || ""}
+                      onChange={(e) =>
+                        setInstitutionSettings((prev) => ({
+                          ...prev,
+                          institutionCode: e.target.value
+                        }))
+                      }
+                    />
+
+                    <div className="form-row-2">
+                      <input
+                        className="input"
+                        placeholder="Contact email"
+                        value={institutionSettings.contactEmail || ""}
+                        onChange={(e) =>
+                          setInstitutionSettings((prev) => ({
+                            ...prev,
+                            contactEmail: e.target.value
+                          }))
+                        }
+                      />
+
+                      <input
+                        className="input"
+                        placeholder="Support email"
+                        value={institutionSettings.supportEmail || ""}
+                        onChange={(e) =>
+                          setInstitutionSettings((prev) => ({
+                            ...prev,
+                            supportEmail: e.target.value
+                          }))
+                        }
+                      />
                     </div>
 
-                    <div className={`badge ${getRiskBadgeClass(predictionResult.riskLevel)}`}>
-                      {predictionResult.riskLevel}
+                    <input
+                      className="input"
+                      placeholder="Contact number"
+                      value={institutionSettings.contactNumber || ""}
+                      onChange={(e) =>
+                        setInstitutionSettings((prev) => ({
+                          ...prev,
+                          contactNumber: e.target.value
+                        }))
+                      }
+                    />
+
+                    <input
+                      className="input"
+                      placeholder="Address"
+                      value={institutionSettings.address || ""}
+                      onChange={(e) =>
+                        setInstitutionSettings((prev) => ({
+                          ...prev,
+                          address: e.target.value
+                        }))
+                      }
+                    />
+
+                    <div className="form-row-2">
+                      <input
+                        className="input"
+                        placeholder="Academic year"
+                        value={institutionSettings.academicYear || ""}
+                        onChange={(e) =>
+                          setInstitutionSettings((prev) => ({
+                            ...prev,
+                            academicYear: e.target.value
+                          }))
+                        }
+                      />
+
+                      <input
+                        className="input"
+                        placeholder="Current semester"
+                        value={institutionSettings.currentSemester || ""}
+                        onChange={(e) =>
+                          setInstitutionSettings((prev) => ({
+                            ...prev,
+                            currentSemester: e.target.value
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="form-row-2">
+                      <input
+                        className="input"
+                        placeholder="Website URL"
+                        value={institutionSettings.websiteUrl || ""}
+                        onChange={(e) =>
+                          setInstitutionSettings((prev) => ({
+                            ...prev,
+                            websiteUrl: e.target.value
+                          }))
+                        }
+                      />
+
+                      <input
+                        className="input"
+                        placeholder="Logo URL"
+                        value={institutionSettings.logoUrl || ""}
+                        onChange={(e) =>
+                          setInstitutionSettings((prev) => ({
+                            ...prev,
+                            logoUrl: e.target.value
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <input
+                      className="input"
+                      placeholder="Timezone"
+                      value={institutionSettings.timezone || ""}
+                      onChange={(e) =>
+                        setInstitutionSettings((prev) => ({
+                          ...prev,
+                          timezone: e.target.value
+                        }))
+                      }
+                    />
+
+                    <textarea
+                      className="textarea"
+                      placeholder="Institution description / about"
+                      value={institutionSettings.description || ""}
+                      onChange={(e) =>
+                        setInstitutionSettings((prev) => ({
+                          ...prev,
+                          description: e.target.value
+                        }))
+                      }
+                    />
+
+                    <div className="action-row">
+                      <button
+                        className="primary-btn"
+                        onClick={saveInstitutionSettings}
+                      >
+                        <CheckCircle size={16} />
+                        Save Settings
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        onClick={loadInstitutionSettings}
+                      >
+                        Reload
+                      </button>
                     </div>
                   </div>
                 )}
               </div>
 
               <div className="list-panel">
-                <h4 className="panel-heading">All Saved Predictions</h4>
+                <h4 className="panel-heading">Institution Preview</h4>
 
-                {allPredictions.length === 0 ? (
-                  <div className="empty-state">
-                    <Brain size={40} style={{ opacity: 0.5 }} />
-                    <div>No saved predictions yet.</div>
-                  </div>
-                ) : (
-                  <div className="list-panel-inner">
-                    {allPredictions.map((item, index) => (
-                      <div className="list-item" key={`${item.studentId}-${item.courseId}-${index}`}>
-                        <div>
-                          <div className="list-item-title">{item.studentName}</div>
-                          <div className="muted">{item.studentEmail}</div>
-                          <div className="muted">
-                            {item.courseCode} — {item.courseTitle}
-                          </div>
-                          <div className="muted">
-                            Probability: {item.dropoutProbability} | Label: {item.predictedLabel}
-                          </div>
-                        </div>
-
-                        <div className="item-actions">
-                          <div className={`badge ${getRiskBadgeClass(item.riskLevel)}`}>
-                            {item.riskLevel}
-                          </div>
-                        </div>
+                <div className="list-panel-inner">
+                  <div className="list-item">
+                    <div>
+                      <div className="list-item-title">
+                        {institutionSettings.institutionName || "Institution Name"}
                       </div>
-                    ))}
+                      <div className="muted">
+                        Code: {institutionSettings.institutionCode || "-"}
+                      </div>
+                      <div className="muted">
+                        Contact: {institutionSettings.contactEmail || "-"}
+                      </div>
+                      <div className="muted">
+                        Support: {institutionSettings.supportEmail || "-"}
+                      </div>
+                      <div className="muted">
+                        Phone: {institutionSettings.contactNumber || "-"}
+                      </div>
+                      <div className="muted">
+                        Address: {institutionSettings.address || "-"}
+                      </div>
+                      <div className="muted">
+                        Academic Year: {institutionSettings.academicYear || "-"} |
+                        Semester: {institutionSettings.currentSemester || "-"}
+                      </div>
+                      <div className="muted">
+                        Website: {institutionSettings.websiteUrl || "-"}
+                      </div>
+                      <div className="muted">
+                        Timezone: {institutionSettings.timezone || "-"}
+                      </div>
+                      <div className="muted" style={{ marginTop: "8px" }}>
+                        {institutionSettings.description ||
+                          "No institution description added yet."}
+                      </div>
+                    </div>
                   </div>
-                )}
+
+                  <div className="info-box">
+                    Last Updated:{" "}
+                    <strong>{formatTimestamp(institutionSettings.updatedAt)}</strong>
+                    <br />
+                    Updated By:{" "}
+                    <strong>{institutionSettings.updatedByName || "-"}</strong>
+                  </div>
+
+                  {institutionSettings.logoUrl && (
+                    <div className="list-item">
+                      <div style={{ width: "100%" }}>
+                        <div className="list-item-title">Logo Preview</div>
+                        <img
+                          src={institutionSettings.logoUrl}
+                          alt="Institution Logo"
+                          className="logo-preview"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

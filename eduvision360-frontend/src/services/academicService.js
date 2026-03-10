@@ -161,3 +161,42 @@ export const askAiTutor = (data) => axios.post(`${BASE_URL}/student/ai/tutor`, d
 export const generateAiSummary = (data) => axios.post(`${BASE_URL}/student/ai/summary`, data, authHeaders());
 export const generateAiQuiz = (data) => axios.post(`${BASE_URL}/student/ai/quiz`, data, authHeaders());
 export const getMyAiHistory = () => axios.get(`${BASE_URL}/student/ai/history`, authHeaders());
+
+export const sendTeacherMessage = (data) =>
+  axios.post(`${BASE_URL}/teacher/messages`, data, authHeaders());
+
+export const getTeacherSentMessages = () =>
+  axios.get(`${BASE_URL}/teacher/messages/sent`, authHeaders());
+
+export const getTeacherMessageStudents = () =>
+  axios.get(`${BASE_URL}/teacher/messages/students`, authHeaders());
+
+export const getStudentInboxMessages = () =>
+  axios.get(`${BASE_URL}/student/messages/inbox`, authHeaders());
+
+export const markStudentMessageAsRead = (messageId) =>
+  axios.put(`${BASE_URL}/student/messages/${messageId}/read`, {}, authHeaders());
+
+export const generateTeacherQuizDraft = (data) =>
+  axios.post(`${BASE_URL}/teacher/quizzes/generate`, data, authHeaders());
+
+export const saveTeacherQuiz = (data) =>
+  axios.post(`${BASE_URL}/teacher/quizzes`, data, authHeaders());
+
+export const getMyTeacherQuizzes = () =>
+  axios.get(`${BASE_URL}/teacher/quizzes`, authHeaders());
+
+export const getTeacherQuizzesByCourse = (courseId) =>
+  axios.get(`${BASE_URL}/teacher/quizzes/course/${courseId}`, authHeaders());
+
+export const getTeacherQuizById = (quizId) =>
+  axios.get(`${BASE_URL}/teacher/quizzes/${quizId}`, authHeaders());
+
+export const getAdminDashboardSummary = () =>
+  axios.get(`${BASE_URL}/admin/dashboard/summary`, authHeaders());
+
+export const getInstitutionSettings = () =>
+  axios.get(`${BASE_URL}/admin/institution-settings`, authHeaders());
+
+export const updateInstitutionSettings = (data) =>
+  axios.put(`${BASE_URL}/admin/institution-settings`, data, authHeaders());

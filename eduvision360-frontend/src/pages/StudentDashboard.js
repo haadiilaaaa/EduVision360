@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { logout, getUserEmail, getUserFullName, getUserInitial } from "../utils/auth";
 import { Outlet, useNavigate } from "react-router-dom";
 import Menu from "../components/Menu";
@@ -13,7 +13,9 @@ import {
   AlertTriangle,
   CalendarDays,
   Brain,
-  ShieldAlert
+  ShieldAlert,
+  TrendingUp,
+  Activity
 } from "lucide-react";
 import {
   getMyEnrollments,
@@ -24,6 +26,8 @@ import {
   getMyLatestStudentPrediction,
   getMyAllStudentPredictions
 } from "../services/predictionService";
+import { getMyProgressAnalytics } from "../services/progressService";
+import { getMyRecommendations } from "../services/recommendationService";
 
 function StudentDashboard() {
   const navigate = useNavigate();
@@ -38,12 +42,53 @@ function StudentDashboard() {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [latestPrediction, setLatestPrediction] = useState(null);
   const [allPredictions, setAllPredictions] = useState([]);
+  const [progressAnalytics, setProgressAnalytics] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
   const [error, setError] = useState("");
+  const progressSectionRef = useRef(null);
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
+  const handleRecommendationAction = (courseRec, item) => {
+  if (!item?.actionType) return;
+
+  switch (item.actionType) {
+    case "OPEN_COURSE_MATERIALS":
+      navigate("/student/materials", {
+        state: {
+          courseId: courseRec.courseId,
+          courseCode: courseRec.courseCode,
+          courseTitle: courseRec.courseTitle,
+          highlightMaterialId: item.materialId || null,
+          highlightMaterialTitle: item.materialTitle || null
+        }
+      });
+      break;
+
+    case "OPEN_AI_TUTOR":
+      navigate("/student/ai-tutor", {
+        state: {
+          courseId: courseRec.courseId,
+          courseCode: courseRec.courseCode,
+          courseTitle: courseRec.courseTitle,
+          recommendedFromDashboard: true
+        }
+      });
+      break;
+
+    case "VIEW_PROGRESS":
+      progressSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+      break;
+
+    default:
+      break;
+  }
+};
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -58,20 +103,41 @@ function StudentDashboard() {
           return { data: [] };
         });
 
-        const [enrollmentsRes, sessionsRes, attendanceRes, latestPredictionRes, allPredictionsRes] =
-          await Promise.all([
-            getMyEnrollments(),
-            getStudentSessions(),
-            getMyAttendanceHistory(),
-            latestPredictionPromise,
-            allPredictionsPromise
-          ]);
+        const progressAnalyticsPromise = getMyProgressAnalytics().catch((err) => {
+          console.error("My progress analytics failed", err?.response?.status, err?.response?.data);
+          return { data: [] };
+        });
+
+        const recommendationsPromise = getMyRecommendations().catch((err) => {
+          console.error("Student recommendations failed", err?.response?.status, err?.response?.data);
+          return { data: [] };
+        });
+
+        const [
+          enrollmentsRes,
+          sessionsRes,
+          attendanceRes,
+          latestPredictionRes,
+          allPredictionsRes,
+          progressAnalyticsRes,
+          recommendationsRes
+        ] = await Promise.all([
+          getMyEnrollments(),
+          getStudentSessions(),
+          getMyAttendanceHistory(),
+          latestPredictionPromise,
+          allPredictionsPromise,
+          progressAnalyticsPromise,
+          recommendationsPromise
+        ]);
 
         setEnrollments(enrollmentsRes.data || []);
         setSessions(sessionsRes.data || []);
         setAttendanceRecords(attendanceRes.data || []);
         setLatestPrediction(latestPredictionRes.data || null);
         setAllPredictions(allPredictionsRes.data || []);
+        setProgressAnalytics(progressAnalyticsRes.data || []);
+        setRecommendations(recommendationsRes.data || []);
       } catch (err) {
         console.error("Failed to load student dashboard data", err);
         setError("Failed to load dashboard data");
@@ -107,9 +173,30 @@ function StudentDashboard() {
     return timeValue.slice(0, 5);
   };
 
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return value;
+    }
+  };
+
   const getRiskClass = (riskLevel) => {
     if (riskLevel === "HIGH") return "high";
     if (riskLevel === "MEDIUM") return "medium";
+    return "low";
+  };
+
+  const getProgressClass = (status) => {
+    if (status === "AT_RISK") return "high";
+    if (status === "NEEDS_ATTENTION") return "medium";
+    return "low";
+  };
+
+  const getPriorityClass = (priority) => {
+    if (priority === "HIGH") return "high";
+    if (priority === "MEDIUM") return "medium";
     return "low";
   };
 
@@ -162,6 +249,14 @@ function StudentDashboard() {
         .engagement-btn { background: rgba(96, 165, 250, 0.14); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.28);
           padding: 12px 16px; border-radius: 14px; font-weight: 700; cursor: pointer; transition: 0.25s ease; }
         .engagement-btn:hover { transform: translateY(-2px); opacity: 0.95; }
+        .recommendation-item { margin-top: 12px; padding: 14px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); }
+        .recommendation-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+        .recommendation-title { font-size: 15px; font-weight: 700; color: var(--text-main); }
+        .recommendation-badge { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .recommendation-badge.high { background: rgba(239, 68, 68, 0.18); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.35); }
+        .recommendation-badge.medium { background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); }
+        .recommendation-badge.low { background: rgba(34, 197, 94, 0.18); color: #16a34a; border: 1px solid rgba(34, 197, 94, 0.35); }
+        .recommendation-action { margin-top: 8px; color: var(--accent); font-size: 13px; font-weight: 600; }
         @media (max-width: 768px) {
           .top-nav { padding: 0 18px; }
           .content-area { padding: 20px; }
@@ -172,6 +267,22 @@ function StudentDashboard() {
           .action-btn-group { width: 100%; flex-direction: column; }
           .engagement-btn { width: 100%; }
         }
+          .recommendation-btn {
+  margin-top: 10px;
+  background: rgba(255, 213, 72, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(255, 213, 72, 0.28);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.25s ease;
+}
+
+.recommendation-btn:hover {
+  transform: translateY(-2px);
+  opacity: 0.95;
+}
       `}</style>
 
       <div className="dashboard-layout">
@@ -295,6 +406,129 @@ function StudentDashboard() {
                     This prediction is used to support learning interventions. It is not a final academic decision.
                   </p>
                 </>
+              )}
+            </div>
+
+            <div className="predictions-panel" ref={progressSectionRef}>
+              <h3 className="predictions-title">
+                <TrendingUp size={22} /> My Learning Progress
+              </h3>
+
+              {progressAnalytics.length === 0 ? (
+                <div className="empty-state">
+                  <Activity size={34} style={{ marginBottom: "12px", opacity: 0.5 }} />
+                  <div>No progress analytics has been generated yet.</div>
+                </div>
+              ) : (
+                <div className="prediction-list">
+                  {progressAnalytics.map((item, index) => (
+                    <div
+                      className="prediction-card"
+                      key={`${item.studentId}-${item.courseId}-${index}`}
+                    >
+                      <div>
+                        <div className="prediction-title">
+                          {item.courseCode} - {item.courseTitle}
+                        </div>
+
+                        <div className="prediction-meta">
+                          Progress Score: {item.progressScore}
+                          <br />
+                          Trend: {item.trend}
+                          <br />
+                          Suggestion: {item.interventionSuggestion}
+                          <br />
+                          Generated At: {formatDateTime(item.generatedAt)}
+                        </div>
+
+                        <div className="prediction-meta" style={{ marginTop: "10px" }}>
+                          Attendance Logs: {item.attendancePresentCountWindow} | Material Views:{" "}
+                          {item.materialViewsCountWindow} | AI Usage: {item.aiTotalCountWindow}
+                        </div>
+
+                        {item.reasons?.length > 0 && (
+                          <div className="prediction-meta" style={{ marginTop: "10px" }}>
+                            {item.reasons.map((reason, idx) => (
+                              <div key={idx}>• {reason}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <div className={`risk-pill ${getProgressClass(item.status)}`}>
+                          {item.status}
+                        </div>
+
+                        {item.dropoutRiskLevel && (
+                          <div className={`risk-pill ${getRiskClass(item.dropoutRiskLevel)}`}>
+                            Risk: {item.dropoutRiskLevel}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="predictions-panel">
+              <h3 className="predictions-title">
+                <Brain size={22} /> Recommended Next Steps
+              </h3>
+
+              {recommendations.length === 0 ? (
+                <div className="empty-state">
+                  <Brain size={34} style={{ marginBottom: "12px", opacity: 0.5 }} />
+                  <div>No recommendations available yet.</div>
+                </div>
+              ) : (
+                <div className="prediction-list">
+                  {recommendations.map((courseRec, index) => (
+                    <div className="prediction-card" key={`${courseRec.courseId}-${index}`}>
+                      <div style={{ width: "100%" }}>
+                        <div className="prediction-title">
+                          {courseRec.courseCode} - {courseRec.courseTitle}
+                        </div>
+
+                        <div className="prediction-meta">
+                          Progress Score: {courseRec.progressScore ?? "N/A"}
+                          <br />
+                          Status: {courseRec.progressStatus || "N/A"}
+                          <br />
+                          Risk Level: {courseRec.riskLevel || "N/A"}
+                          <br />
+                          Trend: {courseRec.trend || "N/A"}
+                        </div>
+
+                        <div style={{ marginTop: "12px" }}>
+                          {courseRec.items?.map((item, idx) => (
+                            <div key={idx} className="recommendation-item">
+                              <div className="recommendation-top">
+                                <div className="recommendation-title">{item.title}</div>
+                                <div className={`recommendation-badge ${getPriorityClass(item.priority)}`}>
+                                  {item.priority}
+                                </div>
+                              </div>
+
+                              <div className="prediction-meta">
+                                {item.reason}
+                              </div>
+
+                              <button
+  className="recommendation-btn"
+  onClick={() => handleRecommendationAction(courseRec, item)}
+>
+  {item.actionLabel}
+  {item.materialTitle ? ` - ${item.materialTitle}` : ""}
+</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
